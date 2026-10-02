@@ -3,9 +3,9 @@ import { auth } from '../auth'
 import { db } from './client'
 import { user } from './auth-schema'
 
-const ADMIN_EMAIL = 'admin@bgm.local'
+const ADMIN_EMAIL = 'admin@bilms.local'
 const ADMIN_PASSWORD = 'ChangeMoi123!'
-const ADMIN_NAME = 'Administrateur BGM'
+const ADMIN_NAME = 'Administrateur BILMS'
 
 async function seedAdmin() {
   const [existing] = await db.select().from(user).where(eq(user.email, ADMIN_EMAIL))

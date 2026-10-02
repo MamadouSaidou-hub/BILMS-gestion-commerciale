@@ -24,7 +24,7 @@ beforeAll(async () => {
 
   const [product] = await db
     .insert(products)
-    .values({ name: `Farine ${runId}`, sku: `SKU-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800 })
+    .values({ name: `Produit ${runId}`, sku: `SKU-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800 })
     .returning()
   productId = product.id
 

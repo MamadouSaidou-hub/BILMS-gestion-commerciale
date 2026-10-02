@@ -1,6 +1,6 @@
-# BGM Management System
+# BILMS Management System
 
-Application de gestion pour une entreprise de distribution de farine en sacs : magasins, ventes, stock, trésorerie, fournisseurs, remises par palier. Voir `progress.md` pour l'état d'avancement détaillé et les décisions prises.
+Application de gestion commerciale (forkée depuis le projet BGM — voir `progress.md`) : magasins, ventes, stock, trésorerie, fournisseurs, remises par palier. Le vocabulaire d'unité et le branding sont centralisés dans `lib/business-config.ts`/`lib/company-info.ts`.
 
 ## 1. Prérequis
 
@@ -59,8 +59,9 @@ Puis ouvrir [http://localhost:3000](http://localhost:3000) — redirige automati
 
 | Rôle | E-mail | Mot de passe | Portée |
 |---|---|---|---|
-| Administrateur | `admin@bgm.local` | `ChangeMoi123!` | Tous les magasins, toutes les pages |
-| Gestionnaire | `gerant.bonapriso@bgm.local` | `GerantPass123!` | BGM Bonapriso uniquement |
+| Administrateur | `admin@bilms.local` | `ChangeMoi123!` | Tous les magasins, toutes les pages |
+
+Un compte gestionnaire peut être créé via le menu **Utilisateurs** une fois connecté en admin.
 
 Pour créer d'autres comptes : se connecter en admin → menu **Utilisateurs** → "Nouvel utilisateur" (choisir un rôle et, pour un gestionnaire, un magasin).
 

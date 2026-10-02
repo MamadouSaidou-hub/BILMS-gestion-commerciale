@@ -21,6 +21,8 @@ import {
   transfers,
 } from './schema'
 
+// Catalogue générique de démo — à remplacer par les vrais produits/prix du client avant mise en
+// production. `sackWeightKg` porte ici le nombre de pièces par carton (voir lib/business-config.ts).
 function daysAgo(days: number, hours = 0, minutes = 0) {
   const date = new Date()
   date.setDate(date.getDate() - days)
@@ -51,73 +53,73 @@ async function seed() {
   await db.delete(products)
   await db.delete(stores)
 
-  const [akwa, bonapriso, bastos] = await db
+  const [kaloum, madina, matam] = await db
     .insert(stores)
     .values([
-      { name: 'BGM Akwa', city: 'Douala' },
-      { name: 'BGM Bonapriso', city: 'Douala' },
-      { name: 'BGM Bastos', city: 'Yaoundé' },
+      { name: 'BILMS Kaloum', city: 'Conakry' },
+      { name: 'BILMS Madina', city: 'Conakry' },
+      { name: 'BILMS Matam', city: 'Conakry' },
     ])
     .returning()
 
   const productRows = await db
     .insert(products)
     .values([
-      { name: 'Farine de blé T55 50kg', sku: 'FAR-T55-50', category: 'Farine de blé', unitPrice: 330000, costPrice: 30500, reorderThreshold: 20, sackWeightKg: 50 },
-      { name: 'Farine complète 50kg', sku: 'FAR-CPL-50', category: 'Farine complète', unitPrice: 330000, costPrice: 32000, reorderThreshold: 15, sackWeightKg: 50 },
-      { name: 'Farine boulangère 50kg', sku: 'FAR-BLG-50', category: 'Farine boulangère', unitPrice: 330000, costPrice: 31000, reorderThreshold: 20, sackWeightKg: 50 },
-      { name: 'Farine pâtissière 50kg', sku: 'FAR-PAT-50', category: 'Farine pâtissière', unitPrice: 330000, costPrice: 33000, reorderThreshold: 15, sackWeightKg: 50 },
+      { name: 'Savon de toilette parfumé', sku: 'SAV-TOI-01', category: 'Savon de toilette', unitPrice: 5000, costPrice: 3500, reorderThreshold: 100, sackWeightKg: 72 },
+      { name: 'Savon de ménage', sku: 'SAV-MEN-01', category: 'Savon de ménage', unitPrice: 4000, costPrice: 2800, reorderThreshold: 150, sackWeightKg: 48 },
+      { name: 'Savon liquide (bidon)', sku: 'SAV-LIQ-01', category: 'Savon liquide', unitPrice: 25000, costPrice: 18000, reorderThreshold: 20, sackWeightKg: 12 },
+      { name: 'Savon antiseptique', sku: 'SAV-ANT-01', category: 'Savon antiseptique', unitPrice: 6000, costPrice: 4200, reorderThreshold: 80, sackWeightKg: 60 },
     ])
     .returning()
 
-  const [fT55, fCpl, fBlg, fPat] = productRows
+  const [sToi, sMen, sLiq, sAnt] = productRows
 
-  const storeList = [akwa, bonapriso, bastos]
+  const storeList = [kaloum, madina, matam]
   const stockRows: { productId: number; storeId: number; quantity: number }[] = []
   for (const store of storeList) {
     for (const product of productRows) {
-      const base = Math.floor(Math.random() * 60) + 5
+      const base = Math.floor(Math.random() * 200) + 20
       stockRows.push({ productId: product.id, storeId: store.id, quantity: base })
     }
   }
-  stockRows.find((row) => row.productId === fCpl.id && row.storeId === akwa.id)!.quantity = 6
-  stockRows.find((row) => row.productId === fPat.id && row.storeId === bonapriso.id)!.quantity = 4
-  stockRows.find((row) => row.productId === fBlg.id && row.storeId === bastos.id)!.quantity = 8
+  stockRows.find((row) => row.productId === sMen.id && row.storeId === kaloum.id)!.quantity = 30
+  stockRows.find((row) => row.productId === sAnt.id && row.storeId === madina.id)!.quantity = 15
+  stockRows.find((row) => row.productId === sLiq.id && row.storeId === matam.id)!.quantity = 5
   await db.insert(stockLevels).values(stockRows)
 
   const clientRows = await db
     .insert(clients)
     .values([
-      { name: 'Noura Market', phone: '699 12 34 56', storeId: akwa.id },
-      { name: 'Épicerie Chantal', phone: '677 98 76 54', storeId: bonapriso.id },
-      { name: 'Superette Le Bon Coin', phone: '655 44 33 22', storeId: bastos.id },
-      { name: 'Boutique Fatima', phone: '691 22 11 00', storeId: akwa.id },
-      { name: 'Dépôt Emmanuel', phone: '676 55 66 77', storeId: bonapriso.id },
+      { name: 'Boutique Alpha', phone: '620 11 22 33', storeId: kaloum.id },
+      { name: 'Supermarché Centrale', phone: '621 44 55 66', storeId: madina.id },
+      { name: 'Quincaillerie Fatoumata', phone: '622 77 88 99', storeId: matam.id },
+      { name: 'Dépôt Thierno', phone: '623 00 11 22', storeId: kaloum.id },
+      { name: 'Boutique Diaraye', phone: '624 33 44 55', storeId: madina.id },
     ])
     .returning()
 
   const salesPlan = [
-    { store: akwa, ref: 'BG-1048', daysAgo: 0, hours: 0, minutes: 8, status: 'paid' as const, client: null },
-    { store: akwa, ref: 'BG-1047', daysAgo: 0, hours: 3, minutes: 0, status: 'paid' as const, client: null },
-    { store: bonapriso, ref: 'BG-1046', daysAgo: 1, hours: 2, minutes: 0, status: 'credit' as const, client: clientRows[1] },
-    { store: bastos, ref: 'BG-1045', daysAgo: 1, hours: 6, minutes: 0, status: 'paid' as const, client: null },
-    { store: akwa, ref: 'BG-1044', daysAgo: 2, hours: 1, minutes: 0, status: 'partial' as const, client: clientRows[0] },
-    { store: bonapriso, ref: 'BG-1043', daysAgo: 2, hours: 5, minutes: 0, status: 'paid' as const, client: null },
-    { store: bastos, ref: 'BG-1042', daysAgo: 3, hours: 0, minutes: 0, status: 'paid' as const, client: null },
-    { store: akwa, ref: 'BG-1041', daysAgo: 4, hours: 0, minutes: 0, status: 'credit' as const, client: clientRows[3] },
-    { store: bonapriso, ref: 'BG-1040', daysAgo: 5, hours: 0, minutes: 0, status: 'paid' as const, client: null },
-    { store: bastos, ref: 'BG-1039', daysAgo: 6, hours: 0, minutes: 0, status: 'paid' as const, client: null },
-    { store: akwa, ref: 'BG-1038', daysAgo: 6, hours: 4, minutes: 0, status: 'paid' as const, client: null },
-    { store: bonapriso, ref: 'BG-1037', daysAgo: 7, hours: 0, minutes: 0, status: 'partial' as const, client: clientRows[4] },
+    { store: kaloum, ref: 'BL-1012', daysAgo: 0, hours: 0, minutes: 8, status: 'paid' as const, client: null },
+    { store: kaloum, ref: 'BL-1011', daysAgo: 0, hours: 3, minutes: 0, status: 'paid' as const, client: null },
+    { store: madina, ref: 'BL-1010', daysAgo: 1, hours: 2, minutes: 0, status: 'credit' as const, client: clientRows[1] },
+    { store: matam, ref: 'BL-1009', daysAgo: 1, hours: 6, minutes: 0, status: 'paid' as const, client: null },
+    { store: kaloum, ref: 'BL-1008', daysAgo: 2, hours: 1, minutes: 0, status: 'partial' as const, client: clientRows[0] },
+    { store: madina, ref: 'BL-1007', daysAgo: 2, hours: 5, minutes: 0, status: 'paid' as const, client: null },
+    { store: matam, ref: 'BL-1006', daysAgo: 3, hours: 0, minutes: 0, status: 'paid' as const, client: null },
+    { store: kaloum, ref: 'BL-1005', daysAgo: 4, hours: 0, minutes: 0, status: 'credit' as const, client: clientRows[3] },
+    { store: madina, ref: 'BL-1004', daysAgo: 5, hours: 0, minutes: 0, status: 'paid' as const, client: null },
+    { store: matam, ref: 'BL-1003', daysAgo: 6, hours: 0, minutes: 0, status: 'paid' as const, client: null },
+    { store: kaloum, ref: 'BL-1002', daysAgo: 6, hours: 4, minutes: 0, status: 'paid' as const, client: null },
+    { store: madina, ref: 'BL-1001', daysAgo: 7, hours: 0, minutes: 0, status: 'partial' as const, client: clientRows[4] },
   ]
 
-  const catalog = [fT55, fCpl, fBlg, fPat]
+  const catalog = [sToi, sMen, sLiq, sAnt]
 
   for (const plan of salesPlan) {
     const itemCount = Math.floor(Math.random() * 3) + 1
     const chosen = [...catalog].sort(() => Math.random() - 0.5).slice(0, itemCount)
     const items = chosen.map((product) => {
-      const quantity = Math.floor(Math.random() * 8) + 1
+      const quantity = Math.floor(Math.random() * 40) + 10
       return { productId: product.id, quantity, unitPrice: product.unitPrice, costPrice: product.costPrice }
     })
     const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
@@ -181,35 +183,35 @@ async function seed() {
   await db.insert(payments).values({
     clientId: clientRows[0].id,
     saleId: null,
-    storeId: akwa.id,
-    amount: 150000,
+    storeId: kaloum.id,
+    amount: 80000,
     method: 'cash',
     createdAt: daysAgo(0, 1, 0),
   })
 
   await db.insert(stockMovements).values({
     type: 'reception',
-    productId: fT55.id,
-    storeId: bonapriso.id,
-    quantity: 84,
-    reference: 'RCP-3312',
+    productId: sToi.id,
+    storeId: madina.id,
+    quantity: 144,
+    reference: 'RCP-2001',
     createdAt: daysAgo(0, 0, 24),
   })
 
   const [transfer] = await db
     .insert(transfers)
     .values({
-      reference: 'TR-028',
-      fromStoreId: akwa.id,
-      toStoreId: bastos.id,
+      reference: 'TR-010',
+      fromStoreId: kaloum.id,
+      toStoreId: matam.id,
       status: 'in_transit',
       createdAt: daysAgo(0, 2, 0),
     })
     .returning()
 
   await db.insert(transferItems).values([
-    { transferId: transfer.id, productId: fT55.id, quantity: 20 },
-    { transferId: transfer.id, productId: fCpl.id, quantity: 40 },
+    { transferId: transfer.id, productId: sMen.id, quantity: 48 },
+    { transferId: transfer.id, productId: sAnt.id, quantity: 24 },
   ])
 
   console.log('Database seeded successfully.')
