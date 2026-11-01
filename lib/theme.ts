@@ -1,4 +1,4 @@
-export const THEME_STORAGE_KEY = 'bgm-theme'
+export const THEME_STORAGE_KEY = 'bilms-theme'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 

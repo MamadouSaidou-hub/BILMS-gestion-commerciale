@@ -41,7 +41,8 @@ async function buildInvoicePdf(sale: SaleDetail) {
   const autoTableModule = await import('jspdf-autotable')
   const autoTable = autoTableModule.default
 
-  const NAVY: [number, number, number] = [11, 46, 92]
+  const NAVY: [number, number, number] = [26, 60, 114]
+  const GOLD: [number, number, number] = [201, 149, 47]
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -60,7 +61,7 @@ async function buildInvoicePdf(sale: SaleDetail) {
   doc.setTextColor(...NAVY)
   doc.text(companyInfo.name, textX, 20)
   doc.setFontSize(8.5)
-  doc.setTextColor(46, 158, 63)
+  doc.setTextColor(...GOLD)
   doc.text(companyInfo.tagline.toUpperCase(), textX, 25)
   doc.setFontSize(8.5)
   doc.setTextColor(120, 130, 145)

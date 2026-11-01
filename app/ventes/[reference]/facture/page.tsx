@@ -7,7 +7,8 @@ import { InvoiceActions } from './invoice-actions'
 const statusLabel = { paid: 'Payée', partial: 'Partielle', credit: 'À crédit' }
 const statusColor = { paid: '#2e9e3f', partial: '#f0a020', credit: '#3b82c4' }
 
-const NAVY = '#0b2e5c'
+const NAVY = '#1a3c72'
+const GOLD = '#c9952f'
 const MUTED = '#7d8ba0'
 const BORDER = '#e3e9f1'
 
@@ -34,7 +35,7 @@ export default async function Page({ params }: { params: Promise<{ reference: st
               <img src={companyInfo.logoPath} alt={companyInfo.name} style={{ width: 64, height: 64, objectFit: 'contain', flexShrink: 0 }} />
               <div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: NAVY, letterSpacing: '-.3px' }}>{companyInfo.name}</div>
-                <div style={{ fontSize: 10, color: '#2e9e3f', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', margin: '2px 0 6px' }}>{companyInfo.tagline}</div>
+                <div style={{ fontSize: 10, color: GOLD, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', margin: '2px 0 6px' }}>{companyInfo.tagline}</div>
                 <div style={{ fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
                   <div>{companyInfo.address}</div>
                   <div>{companyInfo.phone} · {companyInfo.email}</div>

@@ -21,21 +21,21 @@ export const viewport: Viewport = {
 // Runs before paint to avoid a flash of the wrong theme/accent color.
 const themeScript = `
 try {
-  var theme = localStorage.getItem('bgm-theme');
+  var theme = localStorage.getItem('bilms-theme');
   if (theme === 'light' || theme === 'dark') {
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.style.colorScheme = theme;
   } else {
     document.documentElement.style.colorScheme = 'light dark';
   }
-  var accent = localStorage.getItem('bgm-accent-color');
+  var accent = localStorage.getItem('bilms-accent-color');
   if (accent) document.documentElement.style.setProperty('--primary', accent);
 } catch (e) {}
 `
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fr" className={`bg-background ${inter.variable}`}>
+    <html lang="fr" className={`bg-background ${inter.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
