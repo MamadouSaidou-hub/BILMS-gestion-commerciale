@@ -28,8 +28,12 @@ export async function createSale(input: {
             `Ce produit n'a pas de poids de ${businessConfig.unit.baseSingularLower} configuré, vente en ${businessConfig.unit.bulkLabel.toLowerCase()}s impossible.`,
           )
         }
+        // Unlike BGM's flour (kg -> tonne, a universal physical ratio handled by dividing total
+        // weight by per-sack weight), BILMS's bulk unit (carton) holds a variable, per-product
+        // piece count — `sackWeightKg` stores that count, not a weight. So the bulk quantity
+        // entered (number of cartons) is multiplied by pieces-per-carton, not divided by it.
         const tonnage = item.tonnage ?? 0
-        const quantity = Math.round((tonnage * businessConfig.unit.bulkConversionFactor) / product.sackWeightKg)
+        const quantity = Math.round(tonnage * product.sackWeightKg * businessConfig.unit.bulkConversionFactor)
         return { ...item, quantity, unit: 'tonne' as const, tonnage }
       }
       return { ...item, unit: 'sack' as const, tonnage: null }

@@ -112,14 +112,14 @@ describe('createSale', () => {
       paymentStatus: 'paid',
       paidNow: 0,
       dueInDays: 15,
-      items: [{ productId: tonneProductId, quantity: 0, unitPrice: 1000, unit: 'tonne', tonnage: 2.5 }], // 2.5t / 25kg = 100 sacks
+      items: [{ productId: tonneProductId, quantity: 0, unitPrice: 1000, unit: 'tonne', tonnage: 4 }], // 4 cartons x 25 pieces/carton = 100 pieces
     })
     saleIds.push(sale.id)
 
     const [item] = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id))
     expect(item.quantity).toBe(100)
     expect(item.unit).toBe('tonne')
-    expect(item.tonnage).toBe(2.5)
+    expect(item.tonnage).toBe(4)
     expect(await stockOf(tonneProductId)).toBe(before - 100)
   })
 
@@ -133,6 +133,6 @@ describe('createSale', () => {
         dueInDays: 15,
         items: [{ productId: sackProductId, quantity: 0, unitPrice: 1000, unit: 'tonne', tonnage: 1 }],
       }),
-    ).rejects.toThrow(/poids de sac/i)
+    ).rejects.toThrow(/poids de pièce/i)
   })
 })

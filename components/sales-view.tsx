@@ -74,7 +74,7 @@ function NewSaleForm({
     if (item.unit === 'tonne') {
       const product = productMap.get(item.productId)
       if (!product?.sackWeightKg) return 0
-      return Math.round(((Number(item.tonnage) || 0) * businessConfig.unit.bulkConversionFactor) / product.sackWeightKg)
+      return Math.round((Number(item.tonnage) || 0) * product.sackWeightKg * businessConfig.unit.bulkConversionFactor)
     }
     return Number(item.quantity) || 0
   }
@@ -170,7 +170,7 @@ function NewSaleForm({
               </div>
               {item.unit === 'tonne' ? (
                 <div className="form-field" style={{ marginBottom: 0 }}>
-                  <input required type="number" min="0.01" step="0.01" placeholder="Tonnage" value={item.tonnage} onChange={(event) => updateItem(index, { tonnage: event.target.value })} />
+                  <input required type="number" min="0.01" step="0.01" placeholder={`Qté (${businessConfig.unit.bulkLabel.toLowerCase()}s)`} value={item.tonnage} onChange={(event) => updateItem(index, { tonnage: event.target.value })} />
                 </div>
               ) : (
                 <div className="form-field" style={{ marginBottom: 0 }}>
