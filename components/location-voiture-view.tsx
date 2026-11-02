@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Car, CheckCircle2, Plus, RefreshCw, Wallet } from 'lucide-react'
+import Link from 'next/link'
+import { AlertTriangle, Banknote, Car, CheckCircle2, FileText, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -23,12 +24,33 @@ type Rental = {
   paymentStatus: 'paid' | 'partial' | 'unpaid'
   status: 'active' | 'completed' | 'cancelled'
 }
-type Data = { vehicles: Vehicle[]; rentals: Rental[]; upcomingDeadlines: Rental[] }
+type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amountFormatted: string; notes: string | null }
+type Summary = {
+  totalCollectedFormatted: string
+  totalExpensesFormatted: string
+  netFormatted: string
+  net: number
+  availableCount: number
+  rentedCount: number
+  maintenanceCount: number
+  activeRentalsCount: number
+}
+type Data = { vehicles: Vehicle[]; rentals: Rental[]; upcomingDeadlines: Rental[]; expenses: Expense[]; summary: Summary }
 
 const statusLabel = { available: 'Disponible', rented: 'En location', maintenance: 'En entretien' }
 const statusBadge = { available: 'badge-green', rented: 'badge-blue', maintenance: 'badge-orange' }
 const paymentLabel = { paid: 'Payée', partial: 'Partielle', unpaid: 'Non payée' }
 const paymentBadge = { paid: 'badge-green', partial: 'badge-orange', unpaid: 'badge-red' }
+
+function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: typeof Car; tone: 'navy' | 'green' | 'orange' | 'blue' }) {
+  return (
+    <article className="metric-card">
+      <div className="metric-topline"><span className={`metric-icon metric-icon-${tone}`}><Icon aria-hidden="true" /></span></div>
+      <p className="metric-label">{label}</p>
+      <p className="metric-value">{value}</p>
+    </article>
+  )
+}
 
 function NewVehicleForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
@@ -234,6 +256,59 @@ function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => v
   )
 }
 
+function NewExpenseForm({ vehicles, onCreated }: { vehicles: Vehicle[]; onCreated: () => void }) {
+  const [vehicleId, setVehicleId] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [category, setCategory] = useState('')
+  const [amount, setAmount] = useState('')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/vehicules/depenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicleId: vehicleId || null, date, category, amount, notes }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onCreated()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-field">
+        <label>Véhicule concerné (optionnel)</label>
+        <select value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
+          <option value="">Dépense générale</option>
+          {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} — {vehicle.plate}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Catégorie</label><input required value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Ex : Entretien, Assurance, Carburant" /></div>
+      </div>
+      <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer la dépense'}</button></div>
+    </form>
+  )
+}
+
 export function LocationVoitureView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
@@ -243,6 +318,7 @@ export function LocationVoitureView() {
   const [closingRental, setClosingRental] = useState<Rental | null>(null)
   const [payingRental, setPayingRental] = useState<Rental | null>(null)
   const [renewingRental, setRenewingRental] = useState<Rental | null>(null)
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -263,6 +339,13 @@ export function LocationVoitureView() {
       </section>
 
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
+
+      <section className="metrics-grid" aria-label="Indicateurs location voiture">
+        <MetricCard label="Total encaissé" value={data?.summary.totalCollectedFormatted ?? '—'} icon={Banknote} tone="green" />
+        <MetricCard label="Total dépenses" value={data?.summary.totalExpensesFormatted ?? '—'} icon={TrendingDown} tone="orange" />
+        <MetricCard label="Résultat net" value={data?.summary.netFormatted ?? '—'} icon={TrendingUp} tone={data && data.summary.net < 0 ? 'orange' : 'navy'} />
+        <MetricCard label="Locations actives" value={data ? `${data.summary.activeRentalsCount}` : '—'} icon={Car} tone="blue" />
+      </section>
 
       {(data?.upcomingDeadlines ?? []).length > 0 && (
         <section className="table-panel" style={{ marginBottom: 20, borderColor: 'var(--orange)' }}>
@@ -337,12 +420,40 @@ export function LocationVoitureView() {
                     {rental.paymentStatus !== 'paid' && <button className="btn-ghost" onClick={() => setPayingRental(rental)}><Wallet size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Payer</button>}
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setRenewingRental(rental)}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>}
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setClosingRental(rental)}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Clôturer</button>}
+                    <Link className="btn-ghost" href={`/location-voiture/${rental.id}/facture`} target="_blank"><FileText size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Facture</Link>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           {!loading && (data?.rentals ?? []).length === 0 && <p className="table-empty">Aucune location enregistrée.</p>}
+        </div>
+      </div>
+
+      <section className="page-heading" style={{ marginTop: 32 }}>
+        <div><h1 style={{ fontSize: 18 }}>Dépenses</h1></div>
+      </section>
+      <div className="toolbar-panel">
+        <p className="heading-subtitle">Entretien, assurance, carburant...</p>
+        <button className="btn-primary" onClick={() => setExpenseModalOpen(true)}><ReceiptText size={14} /> Nouvelle dépense</button>
+      </div>
+      <div className="table-panel">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead><tr><th>Date</th><th>Véhicule</th><th>Catégorie</th><th>Montant</th><th>Notes</th></tr></thead>
+            <tbody>
+              {(data?.expenses ?? []).map((expense) => (
+                <tr key={expense.id}>
+                  <td data-label="Date">{expense.date}</td>
+                  <td data-label="Véhicule">{expense.vehicleName}</td>
+                  <td data-label="Catégorie">{expense.category}</td>
+                  <td data-label="Montant">{expense.amountFormatted}</td>
+                  <td data-label="Notes">{expense.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && (data?.expenses ?? []).length === 0 && <p className="table-empty">Aucune dépense enregistrée.</p>}
         </div>
       </div>
 
@@ -360,6 +471,9 @@ export function LocationVoitureView() {
       </Modal>
       <Modal open={renewingRental !== null} onClose={() => setRenewingRental(null)} title="Renouveler la location" subtitle="">
         {renewingRental && <RenewRentalForm rental={renewingRental} onDone={() => { setRenewingRental(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, assurance, carburant...">
+        <NewExpenseForm vehicles={data?.vehicles ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
       </Modal>
     </AppShell>
   )

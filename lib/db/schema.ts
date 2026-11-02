@@ -463,8 +463,38 @@ export const rentPayments = pgTable('rent_payments', {
   ...timestamps,
 })
 
+export const vehicleExpenses = pgTable('vehicle_expenses', {
+  id: serial('id').primaryKey(),
+  // Nullable — a general location-voiture expense doesn't have to be tied to one vehicle.
+  vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
+  date: text('date').notNull(),
+  category: text('category').notNull(),
+  amount: doublePrecision('amount').notNull(),
+  notes: text('notes'),
+  ...timestamps,
+})
+
+export const buildingExpenses = pgTable('building_expenses', {
+  id: serial('id').primaryKey(),
+  buildingId: integer('building_id').references(() => buildings.id, { onDelete: 'set null' }),
+  date: text('date').notNull(),
+  category: text('category').notNull(),
+  amount: doublePrecision('amount').notNull(),
+  notes: text('notes'),
+  ...timestamps,
+})
+
 export const vehiclesRelations = relations(vehicles, ({ many }) => ({
   rentals: many(vehicleRentals),
+  expenses: many(vehicleExpenses),
+}))
+
+export const vehicleExpensesRelations = relations(vehicleExpenses, ({ one }) => ({
+  vehicle: one(vehicles, { fields: [vehicleExpenses.vehicleId], references: [vehicles.id] }),
+}))
+
+export const buildingExpensesRelations = relations(buildingExpenses, ({ one }) => ({
+  building: one(buildings, { fields: [buildingExpenses.buildingId], references: [buildings.id] }),
 }))
 
 export const vehicleRentalsRelations = relations(vehicleRentals, ({ one }) => ({
@@ -473,6 +503,7 @@ export const vehicleRentalsRelations = relations(vehicleRentals, ({ one }) => ({
 
 export const buildingsRelations = relations(buildings, ({ many }) => ({
   units: many(units),
+  expenses: many(buildingExpenses),
 }))
 
 export const unitsRelations = relations(units, ({ one, many }) => ({

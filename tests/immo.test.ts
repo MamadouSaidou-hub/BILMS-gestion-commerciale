@@ -1,13 +1,14 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { buildings, leases, rentPayments, units } from '@/lib/db/schema'
-import { createBuilding, createLease, createUnit, endLease, recordRentPayment, renewLease } from '@/lib/db/mutations/immo'
+import { buildingExpenses, buildings, leases, rentPayments, units } from '@/lib/db/schema'
+import { createBuilding, createLease, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease } from '@/lib/db/mutations/immo'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const buildingIds: number[] = []
 const unitIds: number[] = []
 const leaseIds: number[] = []
+const expenseIds: number[] = []
 
 async function makeUnit(label: string, monthlyRent = 500000) {
   const building = await createBuilding({ name: `Immeuble ${label} ${runId}`, address: 'Adresse test' })
@@ -18,6 +19,9 @@ async function makeUnit(label: string, monthlyRent = 500000) {
 }
 
 afterAll(async () => {
+  for (const id of expenseIds) {
+    await db.delete(buildingExpenses).where(eq(buildingExpenses.id, id))
+  }
   for (const id of leaseIds) {
     await db.delete(rentPayments).where(eq(rentPayments.leaseId, id))
     await db.delete(leases).where(eq(leases.id, id))
@@ -28,6 +32,26 @@ afterAll(async () => {
   for (const id of buildingIds) {
     await db.delete(buildings).where(eq(buildings.id, id))
   }
+})
+
+describe('recordBuildingExpense', () => {
+  it('records an expense linked to a building', async () => {
+    await makeUnit('G')
+    const buildingId = buildingIds[buildingIds.length - 1]
+    const expense = await recordBuildingExpense({ buildingId, date: '2026-11-01', category: 'Plomberie', amount: 200000 })
+    expenseIds.push(expense.id)
+    expect(expense.buildingId).toBe(buildingId)
+  })
+
+  it('records a general expense with no building link', async () => {
+    const expense = await recordBuildingExpense({ date: '2026-11-01', category: 'Taxe foncière', amount: 500000 })
+    expenseIds.push(expense.id)
+    expect(expense.buildingId).toBeNull()
+  })
+
+  it('rejects a non-positive amount', async () => {
+    await expect(recordBuildingExpense({ date: '2026-11-01', category: 'Test', amount: -1 })).rejects.toThrow(/supérieur à zéro/i)
+  })
 })
 
 describe('createLease', () => {

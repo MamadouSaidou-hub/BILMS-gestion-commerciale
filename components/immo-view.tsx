@@ -1,21 +1,43 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Building2, CheckCircle2, Home, Plus, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
+import { AlertTriangle, Banknote, Building2, CheckCircle2, FileText, Home, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 
-type Payment = { period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
+type Payment = { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
 type ActiveLease = { id: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; payments: Payment[] }
 type Unit = { id: number; label: string; floor: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
 type Building = { id: number; name: string; address: string; units: Unit[] }
 type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
-type Data = { buildings: Building[]; upcomingDeadlines: Deadline[] }
+type Expense = { id: number; buildingId: number | null; buildingName: string; date: string; category: string; amountFormatted: string; notes: string | null }
+type Summary = {
+  rentCollectedFormatted: string
+  totalExpensesFormatted: string
+  netFormatted: string
+  net: number
+  unitsTotal: number
+  occupiedCount: number
+  vacantCount: number
+  occupancyRate: number
+}
+type Data = { buildings: Building[]; upcomingDeadlines: Deadline[]; expenses: Expense[]; summary: Summary }
 
 const rentStatusLabel = { paid: 'Payé', late: 'En retard', unpaid: 'Non payé' }
 const rentStatusBadge = { paid: 'badge-green', late: 'badge-red', unpaid: 'badge-orange' }
+
+function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: typeof Building2; tone: 'navy' | 'green' | 'orange' | 'blue' }) {
+  return (
+    <article className="metric-card">
+      <div className="metric-topline"><span className={`metric-icon metric-icon-${tone}`}><Icon aria-hidden="true" /></span></div>
+      <p className="metric-label">{label}</p>
+      <p className="metric-value">{value}</p>
+    </article>
+  )
+}
 
 function currentPeriod() {
   const now = new Date()
@@ -190,6 +212,59 @@ function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; 
   )
 }
 
+function NewBuildingExpenseForm({ buildings, onCreated }: { buildings: Building[]; onCreated: () => void }) {
+  const [buildingId, setBuildingId] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [category, setCategory] = useState('')
+  const [amount, setAmount] = useState('')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/immeubles/depenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildingId: buildingId || null, date, category, amount, notes }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onCreated()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-field">
+        <label>Immeuble concerné (optionnel)</label>
+        <select value={buildingId} onChange={(event) => setBuildingId(event.target.value)}>
+          <option value="">Dépense générale</option>
+          {buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Catégorie</label><input required value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Ex : Plomberie, Électricité, Taxes" /></div>
+      </div>
+      <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer la dépense'}</button></div>
+    </form>
+  )
+}
+
 export function ImmoView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
@@ -198,6 +273,7 @@ export function ImmoView() {
   const [unitBuilding, setUnitBuilding] = useState<Building | null>(null)
   const [leaseUnit, setLeaseUnit] = useState<Unit | null>(null)
   const [renewingLease, setRenewingLease] = useState<{ id: number; endDate: string } | null>(null)
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -232,6 +308,13 @@ export function ImmoView() {
       </section>
 
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
+
+      <section className="metrics-grid" aria-label="Indicateurs immobilier">
+        <MetricCard label="Loyers encaissés" value={data?.summary.rentCollectedFormatted ?? '—'} icon={Banknote} tone="green" />
+        <MetricCard label="Total dépenses" value={data?.summary.totalExpensesFormatted ?? '—'} icon={TrendingDown} tone="orange" />
+        <MetricCard label="Résultat net" value={data?.summary.netFormatted ?? '—'} icon={TrendingUp} tone={data && data.summary.net < 0 ? 'orange' : 'navy'} />
+        <MetricCard label="Taux d'occupation" value={data ? `${data.summary.occupancyRate}% (${data.summary.occupiedCount}/${data.summary.unitsTotal})` : '—'} icon={Building2} tone="blue" />
+      </section>
 
       {(data?.upcomingDeadlines ?? []).length > 0 && (
         <section className="table-panel" style={{ marginBottom: 20, borderColor: 'var(--orange)' }}>
@@ -284,7 +367,14 @@ export function ImmoView() {
                     <td data-label={`Loyer ${period}`}>
                       {unit.activeLease ? (() => {
                         const payment = unit.activeLease.payments.find((p) => p.period === period)
-                        return <span className={`badge ${rentStatusBadge[payment?.status ?? 'unpaid']}`}>{rentStatusLabel[payment?.status ?? 'unpaid']}</span>
+                        return (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span className={`badge ${rentStatusBadge[payment?.status ?? 'unpaid']}`}>{rentStatusLabel[payment?.status ?? 'unpaid']}</span>
+                            {payment?.status === 'paid' && (
+                              <Link href={`/immo/quittances/${payment.id}`} target="_blank" title="Quittance"><FileText size={13} color="var(--faint)" /></Link>
+                            )}
+                          </span>
+                        )
                       })() : '—'}
                     </td>
                     <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -308,6 +398,33 @@ export function ImmoView() {
       ))}
       {!loading && (data?.buildings ?? []).length === 0 && <p className="table-empty">Aucun immeuble enregistré.</p>}
 
+      <section className="page-heading" style={{ marginTop: 32 }}>
+        <div><h1 style={{ fontSize: 18 }}>Dépenses</h1></div>
+      </section>
+      <div className="toolbar-panel">
+        <p className="heading-subtitle">Entretien, réparations, taxes...</p>
+        <button className="btn-primary" onClick={() => setExpenseModalOpen(true)}><ReceiptText size={14} /> Nouvelle dépense</button>
+      </div>
+      <div className="table-panel">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead><tr><th>Date</th><th>Immeuble</th><th>Catégorie</th><th>Montant</th><th>Notes</th></tr></thead>
+            <tbody>
+              {(data?.expenses ?? []).map((expense) => (
+                <tr key={expense.id}>
+                  <td data-label="Date">{expense.date}</td>
+                  <td data-label="Immeuble">{expense.buildingName}</td>
+                  <td data-label="Catégorie">{expense.category}</td>
+                  <td data-label="Montant">{expense.amountFormatted}</td>
+                  <td data-label="Notes">{expense.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && (data?.expenses ?? []).length === 0 && <p className="table-empty">Aucune dépense enregistrée.</p>}
+        </div>
+      </div>
+
       <Modal open={buildingModalOpen} onClose={() => setBuildingModalOpen(false)} title="Nouvel immeuble" subtitle="Ajoutez un immeuble.">
         <NewBuildingForm onCreated={() => { setBuildingModalOpen(false); setRefreshKey((key) => key + 1) }} />
       </Modal>
@@ -319,6 +436,9 @@ export function ImmoView() {
       </Modal>
       <Modal open={renewingLease !== null} onClose={() => setRenewingLease(null)} title="Renouveler le bail" subtitle="">
         {renewingLease && <RenewLeaseForm leaseId={renewingLease.id} currentEndDate={renewingLease.endDate} onDone={() => { setRenewingLease(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, réparations, taxes...">
+        <NewBuildingExpenseForm buildings={data?.buildings ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
       </Modal>
     </AppShell>
   )

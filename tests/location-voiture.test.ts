@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { vehicleRentals, vehicles } from '@/lib/db/schema'
-import { createRental, closeRental, createVehicle, recordRentalPayment, renewRental } from '@/lib/db/mutations/location-voiture'
+import { vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import { createRental, closeRental, createVehicle, recordRentalPayment, recordVehicleExpense, renewRental } from '@/lib/db/mutations/location-voiture'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const vehicleIds: number[] = []
 const rentalIds: number[] = []
+const expenseIds: number[] = []
 
 async function makeVehicle(suffix: string, dailyRate = 10000) {
   const vehicle = await createVehicle({ name: `Véhicule ${suffix} ${runId}`, plate: `TEST-${suffix}-${runId}`, dailyRate })
@@ -15,12 +16,35 @@ async function makeVehicle(suffix: string, dailyRate = 10000) {
 }
 
 afterAll(async () => {
+  for (const id of expenseIds) {
+    await db.delete(vehicleExpenses).where(eq(vehicleExpenses.id, id))
+  }
   for (const id of rentalIds) {
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
   for (const id of vehicleIds) {
     await db.delete(vehicles).where(eq(vehicles.id, id))
   }
+})
+
+describe('recordVehicleExpense', () => {
+  it('records an expense linked to a vehicle', async () => {
+    const vehicle = await makeVehicle('G')
+    const expense = await recordVehicleExpense({ vehicleId: vehicle.id, date: '2026-11-01', category: 'Entretien', amount: 25000 })
+    expenseIds.push(expense.id)
+    expect(expense.vehicleId).toBe(vehicle.id)
+    expect(expense.amount).toBe(25000)
+  })
+
+  it('records a general expense with no vehicle link', async () => {
+    const expense = await recordVehicleExpense({ date: '2026-11-01', category: 'Assurance flotte', amount: 100000 })
+    expenseIds.push(expense.id)
+    expect(expense.vehicleId).toBeNull()
+  })
+
+  it('rejects a non-positive amount', async () => {
+    await expect(recordVehicleExpense({ date: '2026-11-01', category: 'Test', amount: 0 })).rejects.toThrow(/supérieur à zéro/i)
+  })
 })
 
 describe('createRental', () => {

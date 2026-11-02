@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../client'
-import { vehicleRentals, vehicles } from '../schema'
+import { vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
 
 export async function createVehicle(input: { name: string; plate: string; dailyRate: number; notes?: string | null }) {
@@ -100,6 +100,17 @@ export async function renewRental(rentalId: number, additionalDays: number) {
     .where(eq(vehicleRentals.id, rentalId))
     .returning()
   return updated
+}
+
+export async function recordVehicleExpense(input: { vehicleId?: number | null; date: string; category: string; amount: number; notes?: string | null }) {
+  if (input.amount <= 0) {
+    throw new Error('Le montant doit être supérieur à zéro.')
+  }
+  const [expense] = await db
+    .insert(vehicleExpenses)
+    .values({ vehicleId: input.vehicleId ?? null, date: input.date, category: input.category, amount: input.amount, notes: input.notes ?? null })
+    .returning()
+  return expense
 }
 
 export async function recordRentalPayment(rentalId: number, amount: number) {

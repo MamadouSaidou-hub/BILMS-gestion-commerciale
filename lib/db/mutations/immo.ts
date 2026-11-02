@@ -1,7 +1,18 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../client'
-import { buildings, leases, rentPayments, units } from '../schema'
+import { buildingExpenses, buildings, leases, rentPayments, units } from '../schema'
 import { addMonths } from '@/lib/dates'
+
+export async function recordBuildingExpense(input: { buildingId?: number | null; date: string; category: string; amount: number; notes?: string | null }) {
+  if (input.amount <= 0) {
+    throw new Error('Le montant doit être supérieur à zéro.')
+  }
+  const [expense] = await db
+    .insert(buildingExpenses)
+    .values({ buildingId: input.buildingId ?? null, date: input.date, category: input.category, amount: input.amount, notes: input.notes ?? null })
+    .returning()
+  return expense
+}
 
 export async function createBuilding(input: { name: string; address: string }) {
   const [building] = await db.insert(buildings).values({ name: input.name, address: input.address }).returning()
