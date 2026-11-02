@@ -365,6 +365,123 @@ export const discountApplications = pgTable(
   ],
 )
 
+// ─── Location voiture ────────────────────────────────────────────────────
+// Separate from the boutique's `products`/`clients` tables on purpose — a rental client isn't a
+// shop client (no storeId, no credit/discount logic) and a vehicle isn't a product. No tenant/
+// renter table either: name/phone live directly on the rental row, kept deliberately minimal.
+
+export const vehicleStatus = ['available', 'rented', 'maintenance'] as const
+export const vehicles = pgTable('vehicles', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  plate: text('plate').notNull(),
+  dailyRate: doublePrecision('daily_rate').notNull(),
+  status: text('status', { enum: vehicleStatus }).notNull().default('available'),
+  notes: text('notes'),
+  ...timestamps,
+})
+
+export const rentalPaymentStatus = ['paid', 'partial', 'unpaid'] as const
+export const rentalStatus = ['active', 'completed', 'cancelled'] as const
+export const vehicleRentals = pgTable('vehicle_rentals', {
+  id: serial('id').primaryKey(),
+  vehicleId: integer('vehicle_id')
+    .notNull()
+    .references(() => vehicles.id, { onDelete: 'restrict' }),
+  clientName: text('client_name').notNull(),
+  clientPhone: text('client_phone'),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date'),
+  // Snapshot of the vehicle's rate at booking time — later rate changes on the vehicle shouldn't
+  // silently change the price of an existing rental.
+  dailyRate: doublePrecision('daily_rate').notNull(),
+  totalAmount: doublePrecision('total_amount').notNull(),
+  amountPaid: doublePrecision('amount_paid').notNull().default(0),
+  paymentStatus: text('payment_status', { enum: rentalPaymentStatus }).notNull().default('unpaid'),
+  status: text('status', { enum: rentalStatus }).notNull().default('active'),
+  notes: text('notes'),
+  ...timestamps,
+})
+
+// ─── Immo ─────────────────────────────────────────────────────────────────
+// Same isolation principle: buildings/units/leases/rentPayments are their own domain, no sharing
+// with the boutique's tables. No separate tenant table — name/phone live on the lease row.
+
+export const buildings = pgTable('buildings', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  address: text('address').notNull(),
+  ...timestamps,
+})
+
+export const unitStatus = ['vacant', 'occupied'] as const
+export const units = pgTable('units', {
+  id: serial('id').primaryKey(),
+  buildingId: integer('building_id')
+    .notNull()
+    .references(() => buildings.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  floor: integer('floor').notNull(),
+  monthlyRent: doublePrecision('monthly_rent').notNull(),
+  status: text('status', { enum: unitStatus }).notNull().default('vacant'),
+  ...timestamps,
+})
+
+export const leaseStatus = ['active', 'ended'] as const
+export const leases = pgTable('leases', {
+  id: serial('id').primaryKey(),
+  unitId: integer('unit_id')
+    .notNull()
+    .references(() => units.id, { onDelete: 'restrict' }),
+  tenantName: text('tenant_name').notNull(),
+  tenantPhone: text('tenant_phone'),
+  // Snapshot of the unit's rent at lease signing — later rent changes on the unit shouldn't
+  // silently change what an existing tenant owes.
+  monthlyRent: doublePrecision('monthly_rent').notNull(),
+  startDate: text('start_date').notNull(),
+  status: text('status', { enum: leaseStatus }).notNull().default('active'),
+  ...timestamps,
+})
+
+export const rentPaymentStatus = ['paid', 'late', 'unpaid'] as const
+export const rentPayments = pgTable('rent_payments', {
+  id: serial('id').primaryKey(),
+  leaseId: integer('lease_id')
+    .notNull()
+    .references(() => leases.id, { onDelete: 'cascade' }),
+  period: text('period').notNull(), // "2026-11"
+  amount: doublePrecision('amount').notNull(),
+  paidDate: text('paid_date'),
+  status: text('status', { enum: rentPaymentStatus }).notNull().default('unpaid'),
+  ...timestamps,
+})
+
+export const vehiclesRelations = relations(vehicles, ({ many }) => ({
+  rentals: many(vehicleRentals),
+}))
+
+export const vehicleRentalsRelations = relations(vehicleRentals, ({ one }) => ({
+  vehicle: one(vehicles, { fields: [vehicleRentals.vehicleId], references: [vehicles.id] }),
+}))
+
+export const buildingsRelations = relations(buildings, ({ many }) => ({
+  units: many(units),
+}))
+
+export const unitsRelations = relations(units, ({ one, many }) => ({
+  building: one(buildings, { fields: [units.buildingId], references: [buildings.id] }),
+  leases: many(leases),
+}))
+
+export const leasesRelations = relations(leases, ({ one, many }) => ({
+  unit: one(units, { fields: [leases.unitId], references: [units.id] }),
+  rentPayments: many(rentPayments),
+}))
+
+export const rentPaymentsRelations = relations(rentPayments, ({ one }) => ({
+  lease: one(leases, { fields: [rentPayments.leaseId], references: [leases.id] }),
+}))
+
 export const storesRelations = relations(stores, ({ many }) => ({
   stockLevels: many(stockLevels),
   sales: many(sales),
