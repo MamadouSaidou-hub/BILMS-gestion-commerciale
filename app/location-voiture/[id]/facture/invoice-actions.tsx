@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { Download, Mail, MessageCircle, Printer } from 'lucide-react'
 import { companyInfo } from '@/lib/company-info'
+import { businessConfig } from '@/lib/business-config'
+import { amountInWords } from '@/lib/number-to-words'
 
 const statusLabel: Record<string, string> = { paid: 'Payée', partial: 'Partielle', unpaid: 'Non payée' }
 
@@ -108,6 +110,14 @@ async function buildInvoicePdf(rental: RentalDetail) {
   doc.setTextColor(255, 255, 255)
   doc.text('Total à payer', pageWidth - 86, afterItems + 6.5)
   doc.text(rental.totalAmountFormatted, pageWidth - 18, afterItems + 6.5, { align: 'right' })
+
+  const afterTotal = afterItems + 14
+  doc.setFontSize(9)
+  doc.setTextColor(90, 107, 130)
+  doc.text('Arrêtée la présente facture à la somme de :', 14, afterTotal + 4)
+  doc.setFont('helvetica', 'italic')
+  doc.text(`${amountInWords(rental.totalAmount)} ${businessConfig.currency}`, 14, afterTotal + 9)
+  doc.setFont('helvetica', 'normal')
 
   doc.setFontSize(8.5)
   doc.setTextColor(120, 130, 145)

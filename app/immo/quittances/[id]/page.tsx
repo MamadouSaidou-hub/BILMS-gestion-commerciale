@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 import { getRentPaymentDetail } from '@/lib/db/queries'
 import { getSessionContext, isAdmin } from '@/lib/session'
 import { companyInfo } from '@/lib/company-info'
+import { businessConfig } from '@/lib/business-config'
+import { amountInWords } from '@/lib/number-to-words'
 import { InvoiceActions } from './invoice-actions'
 
 const NAVY = '#1a3c72'
@@ -83,6 +85,10 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               </div>
             </div>
           </div>
+
+          <p style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic', margin: '10px 0 0' }}>
+            Arrêtée la présente quittance à la somme de : <strong style={{ color: NAVY, fontStyle: 'normal' }}>{amountInWords(payment.amount)} {businessConfig.currency}</strong>
+          </p>
         </div>
 
         <div className="invoice-footer" style={{ borderTop: `1px solid ${BORDER}` }}>
