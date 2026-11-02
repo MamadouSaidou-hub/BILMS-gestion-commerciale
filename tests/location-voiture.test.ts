@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
 import { vehicleRentals, vehicles } from '@/lib/db/schema'
-import { createRental, closeRental, createVehicle, recordRentalPayment } from '@/lib/db/mutations/location-voiture'
+import { createRental, closeRental, createVehicle, recordRentalPayment, renewRental } from '@/lib/db/mutations/location-voiture'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const vehicleIds: number[] = []
@@ -56,6 +56,30 @@ describe('recordRentalPayment', () => {
 
     const afterFull = await recordRentalPayment(rental.id, 10000)
     expect(afterFull.paymentStatus).toBe('paid')
+  })
+})
+
+describe('renewRental', () => {
+  it('pushes the planned end date back and adds to the total', async () => {
+    const vehicle = await makeVehicle('E', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Renouvellement', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+    expect(rental.plannedEndDate).toBe('2026-11-03')
+    expect(rental.totalAmount).toBe(20000)
+
+    const renewed = await renewRental(rental.id, 3)
+    expect(renewed.plannedEndDate).toBe('2026-11-06')
+    expect(renewed.totalAmount).toBe(50000)
+  })
+
+  it('reverts a "paid" rental back to "partial" once the extension adds unpaid balance', async () => {
+    const vehicle = await makeVehicle('F', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Paid Renew', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+    await recordRentalPayment(rental.id, 10000)
+
+    const renewed = await renewRental(rental.id, 2)
+    expect(renewed.paymentStatus).toBe('partial')
   })
 })
 

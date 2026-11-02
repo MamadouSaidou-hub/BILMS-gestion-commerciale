@@ -391,6 +391,10 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
   clientName: text('client_name').notNull(),
   clientPhone: text('client_phone'),
   startDate: text('start_date').notNull(),
+  // Expected return date (startDate + days at booking, pushed back by renewRental). `endDate` is
+  // the *actual* return date, only set when the rental is closed — the two can differ (early/late
+  // return), which is the point of keeping them separate.
+  plannedEndDate: text('planned_end_date').notNull(),
   endDate: text('end_date'),
   // Snapshot of the vehicle's rate at booking time — later rate changes on the vehicle shouldn't
   // silently change the price of an existing rental.
@@ -439,6 +443,9 @@ export const leases = pgTable('leases', {
   // silently change what an existing tenant owes.
   monthlyRent: doublePrecision('monthly_rent').notNull(),
   startDate: text('start_date').notNull(),
+  // Planned lease end date, pushed back by renewLease — the lease itself only moves to 'ended'
+  // when endLease() is called explicitly, reaching this date doesn't end it automatically.
+  endDate: text('end_date').notNull(),
   status: text('status', { enum: leaseStatus }).notNull().default('active'),
   ...timestamps,
 })

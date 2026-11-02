@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Car, CheckCircle2, Plus, Wallet } from 'lucide-react'
+import { AlertTriangle, Car, CheckCircle2, Plus, RefreshCw, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -15,13 +15,15 @@ type Rental = {
   clientName: string
   clientPhone: string | null
   startDate: string
+  plannedEndDate: string
   endDate: string | null
+  daysRemaining: number | null
   totalAmountFormatted: string
   amountPaidFormatted: string
   paymentStatus: 'paid' | 'partial' | 'unpaid'
   status: 'active' | 'completed' | 'cancelled'
 }
-type Data = { vehicles: Vehicle[]; rentals: Rental[] }
+type Data = { vehicles: Vehicle[]; rentals: Rental[]; upcomingDeadlines: Rental[] }
 
 const statusLabel = { available: 'Disponible', rented: 'En location', maintenance: 'En entretien' }
 const statusBadge = { available: 'badge-green', rented: 'badge-blue', maintenance: 'badge-orange' }
@@ -156,6 +158,44 @@ function CloseRentalForm({ rental, onDone }: { rental: Rental; onDone: () => voi
   )
 }
 
+function RenewRentalForm({ rental, onDone }: { rental: Rental; onDone: () => void }) {
+  const [days, setDays] = useState('1')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/locations-voiture/${rental.id}/renouveler`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Fin prévue actuelle : <strong>{rental.plannedEndDate}</strong></p>
+      <div className="form-field"><label>Jours supplémentaires</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Renouvellement...' : 'Renouveler la location'}</button></div>
+    </form>
+  )
+}
+
 function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => void }) {
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
@@ -202,6 +242,7 @@ export function LocationVoitureView() {
   const [rentalVehicle, setRentalVehicle] = useState<Vehicle | null>(null)
   const [closingRental, setClosingRental] = useState<Rental | null>(null)
   const [payingRental, setPayingRental] = useState<Rental | null>(null)
+  const [renewingRental, setRenewingRental] = useState<Rental | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -222,6 +263,29 @@ export function LocationVoitureView() {
       </section>
 
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
+
+      {(data?.upcomingDeadlines ?? []).length > 0 && (
+        <section className="table-panel" style={{ marginBottom: 20, borderColor: 'var(--orange)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', fontWeight: 700, color: 'var(--orange)' }}>
+            <AlertTriangle size={15} /> Échéances à venir (7 prochains jours)
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Véhicule</th><th>Client</th><th>Retour prévu</th><th></th></tr></thead>
+              <tbody>
+                {(data?.upcomingDeadlines ?? []).map((rental) => (
+                  <tr key={rental.id}>
+                    <td data-label="Véhicule">{rental.vehicleName}</td>
+                    <td data-label="Client">{rental.clientName}</td>
+                    <td data-label="Retour prévu">{rental.plannedEndDate} {rental.daysRemaining !== null && (rental.daysRemaining <= 0 ? <span className="badge badge-red">En retard</span> : <span className="badge badge-orange">Dans {rental.daysRemaining} j</span>)}</td>
+                    <td><button className="btn-ghost" onClick={() => setRenewingRental(rental)}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="toolbar-panel">
         <p className="heading-subtitle">{availableCount} véhicule(s) disponible(s)</p>
@@ -257,7 +321,7 @@ export function LocationVoitureView() {
         <div className="table-scroll">
           <table className="data-table">
             <thead>
-              <tr><th>Véhicule</th><th>Client</th><th>Début</th><th>Fin</th><th>Montant</th><th>Paiement</th><th></th></tr>
+              <tr><th>Véhicule</th><th>Client</th><th>Début</th><th>Fin prévue</th><th>Retour réel</th><th>Montant</th><th>Paiement</th><th></th></tr>
             </thead>
             <tbody>
               {(data?.rentals ?? []).map((rental) => (
@@ -265,11 +329,13 @@ export function LocationVoitureView() {
                   <td data-label="Véhicule">{rental.vehicleName}</td>
                   <td data-label="Client">{rental.clientName}</td>
                   <td data-label="Début">{rental.startDate}</td>
-                  <td data-label="Fin">{rental.endDate ?? '—'}</td>
+                  <td data-label="Fin prévue">{rental.plannedEndDate}</td>
+                  <td data-label="Retour réel">{rental.endDate ?? '—'}</td>
                   <td data-label="Montant">{rental.totalAmountFormatted}</td>
                   <td data-label="Paiement"><span className={`badge ${paymentBadge[rental.paymentStatus]}`}>{paymentLabel[rental.paymentStatus]}</span></td>
                   <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {rental.paymentStatus !== 'paid' && <button className="btn-ghost" onClick={() => setPayingRental(rental)}><Wallet size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Payer</button>}
+                    {rental.status === 'active' && <button className="btn-ghost" onClick={() => setRenewingRental(rental)}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>}
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setClosingRental(rental)}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Clôturer</button>}
                   </td>
                 </tr>
@@ -291,6 +357,9 @@ export function LocationVoitureView() {
       </Modal>
       <Modal open={payingRental !== null} onClose={() => setPayingRental(null)} title="Enregistrer un paiement" subtitle="">
         {payingRental && <RentalPaymentForm rental={payingRental} onDone={() => { setPayingRental(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={renewingRental !== null} onClose={() => setRenewingRental(null)} title="Renouveler la location" subtitle="">
+        {renewingRental && <RenewRentalForm rental={renewingRental} onDone={() => { setRenewingRental(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
     </AppShell>
   )

@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../client'
 import { buildings, leases, rentPayments, units } from '../schema'
+import { addMonths } from '@/lib/dates'
 
 export async function createBuilding(input: { name: string; address: string }) {
   const [building] = await db.insert(buildings).values({ name: input.name, address: input.address }).returning()
@@ -23,7 +24,12 @@ export async function createLease(input: {
   tenantName: string
   tenantPhone?: string | null
   startDate: string
+  months: number
 }) {
+  if (input.months <= 0) {
+    throw new Error('La durée du bail doit être supérieure à zéro.')
+  }
+
   return db.transaction(async (tx) => {
     const [unit] = await tx.select().from(units).where(eq(units.id, input.unitId))
     if (!unit) {
@@ -40,6 +46,7 @@ export async function createLease(input: {
         tenantName: input.tenantName,
         tenantPhone: input.tenantPhone ?? null,
         startDate: input.startDate,
+        endDate: addMonths(input.startDate, input.months),
         monthlyRent: unit.monthlyRent,
       })
       .returning()
@@ -48,6 +55,27 @@ export async function createLease(input: {
 
     return lease
   })
+}
+
+export async function renewLease(leaseId: number, additionalMonths: number) {
+  if (additionalMonths <= 0) {
+    throw new Error('Le nombre de mois doit être supérieur à zéro.')
+  }
+
+  const [lease] = await db.select().from(leases).where(eq(leases.id, leaseId))
+  if (!lease) {
+    throw new Error('Bail introuvable.')
+  }
+  if (lease.status !== 'active') {
+    throw new Error('Seul un bail actif peut être renouvelé.')
+  }
+
+  const [updated] = await db
+    .update(leases)
+    .set({ endDate: addMonths(lease.endDate, additionalMonths) })
+    .where(eq(leases.id, leaseId))
+    .returning()
+  return updated
 }
 
 export async function endLease(leaseId: number) {

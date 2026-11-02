@@ -14,8 +14,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const tenantName = String(body.tenantName ?? '').trim()
   const startDate = String(body.startDate ?? '').trim()
+  const months = Number(body.months)
 
-  if (!Number.isFinite(unitId) || !tenantName || !startDate) {
+  if (!Number.isFinite(unitId) || !tenantName || !startDate || !Number.isFinite(months) || months <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
@@ -25,6 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       tenantName,
       tenantPhone: body.tenantPhone ? String(body.tenantPhone).trim() : undefined,
       startDate,
+      months,
     })
     return NextResponse.json({ lease }, { status: 201 })
   } catch (error) {

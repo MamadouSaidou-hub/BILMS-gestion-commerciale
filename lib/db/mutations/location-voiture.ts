@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../client'
 import { vehicleRentals, vehicles } from '../schema'
+import { addDays } from '@/lib/dates'
 
 export async function createVehicle(input: { name: string; plate: string; dailyRate: number; notes?: string | null }) {
   if (input.dailyRate <= 0) {
@@ -41,6 +42,7 @@ export async function createRental(input: {
         clientName: input.clientName,
         clientPhone: input.clientPhone ?? null,
         startDate: input.startDate,
+        plannedEndDate: addDays(input.startDate, input.days),
         dailyRate: vehicle.dailyRate,
         totalAmount,
       })
@@ -72,6 +74,32 @@ export async function closeRental(rentalId: number, input: { endDate: string }) 
 
     return updated
   })
+}
+
+export async function renewRental(rentalId: number, additionalDays: number) {
+  if (additionalDays <= 0) {
+    throw new Error('Le nombre de jours doit être supérieur à zéro.')
+  }
+
+  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  if (!rental) {
+    throw new Error('Location introuvable.')
+  }
+  if (rental.status !== 'active') {
+    throw new Error('Seule une location active peut être renouvelée.')
+  }
+
+  // Extending the contract adds to what's owed, so a rental already marked "paid" can genuinely
+  // become "partial" again — recompute from the new total rather than leaving the old status.
+  const totalAmount = rental.totalAmount + rental.dailyRate * additionalDays
+  const paymentStatus = rental.amountPaid >= totalAmount ? 'paid' : rental.amountPaid > 0 ? 'partial' : 'unpaid'
+
+  const [updated] = await db
+    .update(vehicleRentals)
+    .set({ plannedEndDate: addDays(rental.plannedEndDate, additionalDays), totalAmount, paymentStatus })
+    .where(eq(vehicleRentals.id, rentalId))
+    .returning()
+  return updated
 }
 
 export async function recordRentalPayment(rentalId: number, amount: number) {

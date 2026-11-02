@@ -1,17 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Building2, CheckCircle2, Home, Plus } from 'lucide-react'
+import { AlertTriangle, Building2, CheckCircle2, Home, Plus, RefreshCw } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 
 type Payment = { period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
-type ActiveLease = { id: number; tenantName: string; tenantPhone: string | null; startDate: string; payments: Payment[] }
+type ActiveLease = { id: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; payments: Payment[] }
 type Unit = { id: number; label: string; floor: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
 type Building = { id: number; name: string; address: string; units: Unit[] }
-type Data = { buildings: Building[] }
+type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
+type Data = { buildings: Building[]; upcomingDeadlines: Deadline[] }
 
 const rentStatusLabel = { paid: 'Payé', late: 'En retard', unpaid: 'Non payé' }
 const rentStatusBadge = { paid: 'badge-green', late: 'badge-red', unpaid: 'badge-orange' }
@@ -107,6 +108,7 @@ function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }
   const [tenantName, setTenantName] = useState('')
   const [tenantPhone, setTenantPhone] = useState('')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [months, setMonths] = useState('12')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -118,7 +120,7 @@ function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }
       const res = await fetch(`/api/logements/${unit.id}/bail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantName, tenantPhone, startDate }),
+        body: JSON.stringify({ tenantName, tenantPhone, startDate, months }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -141,8 +143,49 @@ function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }
         <div className="form-field"><label>Locataire</label><input required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
         <div className="form-field"><label>Téléphone</label><input value={tenantPhone} onChange={(event) => setTenantPhone(event.target.value)} placeholder="6XX XX XX XX" /></div>
       </div>
-      <div className="form-field"><label>Date d’entrée</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Date d’entrée</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+        <div className="form-field"><label>Durée du bail (mois)</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer le bail'}</button></div>
+    </form>
+  )
+}
+
+function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; currentEndDate: string; onDone: () => void }) {
+  const [months, setMonths] = useState('12')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${leaseId}/renouveler`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ months }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Fin actuelle : <strong>{currentEndDate}</strong></p>
+      <div className="form-field"><label>Mois supplémentaires</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Renouvellement...' : 'Renouveler le bail'}</button></div>
     </form>
   )
 }
@@ -154,6 +197,7 @@ export function ImmoView() {
   const [buildingModalOpen, setBuildingModalOpen] = useState(false)
   const [unitBuilding, setUnitBuilding] = useState<Building | null>(null)
   const [leaseUnit, setLeaseUnit] = useState<Unit | null>(null)
+  const [renewingLease, setRenewingLease] = useState<{ id: number; endDate: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -189,6 +233,29 @@ export function ImmoView() {
 
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
 
+      {(data?.upcomingDeadlines ?? []).length > 0 && (
+        <section className="table-panel" style={{ marginBottom: 20, borderColor: 'var(--orange)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', fontWeight: 700, color: 'var(--orange)' }}>
+            <AlertTriangle size={15} /> Échéances à venir (7 prochains jours)
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Logement</th><th>Locataire</th><th>Fin de bail</th><th></th></tr></thead>
+              <tbody>
+                {(data?.upcomingDeadlines ?? []).map((deadline) => (
+                  <tr key={deadline.leaseId}>
+                    <td data-label="Logement">{deadline.buildingName} — {deadline.unitLabel}</td>
+                    <td data-label="Locataire">{deadline.tenantName}</td>
+                    <td data-label="Fin de bail">{deadline.endDate} {deadline.daysRemaining <= 0 ? <span className="badge badge-red">En retard</span> : <span className="badge badge-orange">Dans {deadline.daysRemaining} j</span>}</td>
+                    <td><button className="btn-ghost" onClick={() => setRenewingLease({ id: deadline.leaseId, endDate: deadline.endDate })}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <div className="toolbar-panel">
         <p className="heading-subtitle">Période en cours : {period}</p>
         <button className="btn-primary" onClick={() => setBuildingModalOpen(true)}><Plus size={14} /> Nouvel immeuble</button>
@@ -203,7 +270,7 @@ export function ImmoView() {
           <div className="table-scroll">
             <table className="data-table">
               <thead>
-                <tr><th>Logement</th><th>Étage</th><th>Loyer</th><th>Statut</th><th>Locataire</th><th>Loyer {period}</th><th></th></tr>
+                <tr><th>Logement</th><th>Étage</th><th>Loyer</th><th>Statut</th><th>Locataire</th><th>Fin de bail</th><th>Loyer {period}</th><th></th></tr>
               </thead>
               <tbody>
                 {building.units.map((unit) => (
@@ -213,6 +280,7 @@ export function ImmoView() {
                     <td data-label="Loyer">{unit.monthlyRentFormatted}</td>
                     <td data-label="Statut"><span className={`badge ${unit.status === 'occupied' ? 'badge-blue' : 'badge-green'}`}>{unit.status === 'occupied' ? 'Occupé' : 'Vacant'}</span></td>
                     <td data-label="Locataire">{unit.activeLease?.tenantName ?? '—'}</td>
+                    <td data-label="Fin de bail">{unit.activeLease?.endDate ?? '—'}</td>
                     <td data-label={`Loyer ${period}`}>
                       {unit.activeLease ? (() => {
                         const payment = unit.activeLease.payments.find((p) => p.period === period)
@@ -225,6 +293,7 @@ export function ImmoView() {
                         <>
                           <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'paid')}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Marquer payé</button>
                           <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'late')}>En retard</button>
+                          <button className="btn-ghost" onClick={() => setRenewingLease({ id: unit.activeLease!.id, endDate: unit.activeLease!.endDate })}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>
                           <button className="btn-ghost" onClick={() => endLease(unit.activeLease!.id)}>Terminer le bail</button>
                         </>
                       )}
@@ -247,6 +316,9 @@ export function ImmoView() {
       </Modal>
       <Modal open={leaseUnit !== null} onClose={() => setLeaseUnit(null)} title={`Nouveau bail — ${leaseUnit?.label ?? ''}`} subtitle="Enregistrez un nouveau locataire.">
         {leaseUnit && <NewLeaseForm unit={leaseUnit} onCreated={() => { setLeaseUnit(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={renewingLease !== null} onClose={() => setRenewingLease(null)} title="Renouveler le bail" subtitle="">
+        {renewingLease && <RenewLeaseForm leaseId={renewingLease.id} currentEndDate={renewingLease.endDate} onDone={() => { setRenewingLease(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
     </AppShell>
   )
