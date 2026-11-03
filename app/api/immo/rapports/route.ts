@@ -1,0 +1,13 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getImmoReportsOverview } from '@/lib/db/queries'
+import { getSessionContext, isAdmin } from '@/lib/session'
+
+export async function GET(request: NextRequest) {
+  const ctx = await getSessionContext()
+  if (!ctx) return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 })
+  if (!isAdmin(ctx)) return NextResponse.json({ error: 'Réservé aux administrateurs.' }, { status: 403 })
+
+  const period = request.nextUrl.searchParams.get('period') ?? undefined
+  const data = await getImmoReportsOverview(period)
+  return NextResponse.json(data)
+}

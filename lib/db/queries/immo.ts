@@ -145,6 +145,69 @@ export async function getTenantDetail(tenantId: number) {
   }
 }
 
+function currentPeriodKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+export async function getImmoReportsOverview(period?: string) {
+  const selectedPeriod = period ?? currentPeriodKey()
+
+  const unitRows = await db.select().from(units)
+  const paymentRows = await db.select().from(rentPayments)
+  const expenseRows = await db.select().from(buildingExpenses)
+  const tenantRows = await db.select().from(tenants).orderBy(tenants.name)
+  const leaseRows = await db.select().from(leases)
+
+  const periodPayments = paymentRows.filter((payment) => payment.period === selectedPeriod)
+  const rentCollected = periodPayments.filter((payment) => payment.status === 'paid').reduce((sum, payment) => sum + payment.amount, 0)
+  const rentExpected = periodPayments.reduce((sum, payment) => sum + payment.amount, 0)
+  const collectionRate = rentExpected > 0 ? Math.round((rentCollected / rentExpected) * 100) : 0
+
+  const periodExpenses = expenseRows.filter((expense) => expense.date.slice(0, 7) === selectedPeriod)
+  const totalExpenses = periodExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+
+  const expensesByCategoryMap = new Map<string, number>()
+  for (const expense of periodExpenses) {
+    expensesByCategoryMap.set(expense.category, (expensesByCategoryMap.get(expense.category) ?? 0) + expense.amount)
+  }
+  const expensesByCategory = Array.from(expensesByCategoryMap.entries())
+    .map(([category, amount]) => ({ category, amount, amountFormatted: formatFcfa(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+
+  const occupiedCount = unitRows.filter((unit) => unit.status === 'occupied').length
+
+  // Cumulative, not period-filtered — a tenant's value is read over their whole history, not one month.
+  const topTenants = tenantRows
+    .map((tenant) => {
+      const leaseIds = new Set(leaseRows.filter((lease) => lease.tenantId === tenant.id).map((lease) => lease.id))
+      const totalPaid = paymentRows.filter((payment) => leaseIds.has(payment.leaseId) && payment.status === 'paid').reduce((sum, payment) => sum + payment.amount, 0)
+      return { id: tenant.id, name: tenant.name, totalPaid, totalPaidFormatted: formatFcfa(totalPaid) }
+    })
+    .filter((tenant) => tenant.totalPaid > 0)
+    .sort((a, b) => b.totalPaid - a.totalPaid)
+    .slice(0, 5)
+
+  const availablePeriods = Array.from(new Set([...paymentRows.map((p) => p.period), ...expenseRows.map((e) => e.date.slice(0, 7)), selectedPeriod])).sort().reverse()
+
+  return {
+    period: selectedPeriod,
+    availablePeriods,
+    rentCollected,
+    rentCollectedFormatted: formatFcfa(rentCollected),
+    rentExpected,
+    rentExpectedFormatted: formatFcfa(rentExpected),
+    collectionRate,
+    totalExpenses,
+    totalExpensesFormatted: formatFcfa(totalExpenses),
+    net: rentCollected - totalExpenses,
+    netFormatted: formatFcfa(rentCollected - totalExpenses),
+    occupancyRate: unitRows.length > 0 ? Math.round((occupiedCount / unitRows.length) * 100) : 0,
+    expensesByCategory,
+    topTenants,
+  }
+}
+
 export async function getRentPaymentDetail(paymentId: number) {
   const [payment] = await db.select().from(rentPayments).where(eq(rentPayments.id, paymentId))
   if (!payment || payment.status !== 'paid') return null

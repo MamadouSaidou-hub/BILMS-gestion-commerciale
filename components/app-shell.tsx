@@ -59,6 +59,7 @@ const navGroups = [
     items: [
       { href: '/immo', label: 'Immeubles', icon: Building2, adminOnly: true },
       { href: '/immo/locataires', label: 'Locataires', icon: Users, adminOnly: true },
+      { href: '/immo/rapports', label: 'Rapports', icon: ReceiptText, adminOnly: true },
     ],
   },
   {
@@ -68,6 +69,7 @@ const navGroups = [
     items: [
       { href: '/location-voiture', label: 'Véhicules', icon: Car, adminOnly: true },
       { href: '/location-voiture/clients', label: 'Clients', icon: Users, adminOnly: true },
+      { href: '/location-voiture/rapports', label: 'Rapports', icon: ReceiptText, adminOnly: true },
     ],
   },
 ]

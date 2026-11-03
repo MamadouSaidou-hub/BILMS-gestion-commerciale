@@ -3,6 +3,7 @@ import { db } from '../client'
 import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { daysUntil } from '@/lib/dates'
+import { periodRange, type PeriodKey } from '@/lib/period'
 
 export async function getVehiclesOverview() {
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
@@ -130,6 +131,59 @@ export async function getRentalClientDetail(clientId: number) {
     name: client.name,
     phone: client.phone ?? '—',
     rentals: rentalHistory,
+  }
+}
+
+export async function getLocationReportsOverview(period: PeriodKey) {
+  const { start } = periodRange(period)
+
+  const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
+  const rentalRows = await db.select().from(vehicleRentals)
+  const expenseRows = await db.select().from(vehicleExpenses)
+  const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
+
+  // No payment-date history exists on a rental (see getVehiclesOverview's comment) — createdAt
+  // (when the rental was booked) is the best available proxy for "on this period." Labeled in the
+  // UI as "réservées sur la période," never as "encaissées," so this approximation stays honest.
+  const periodRentals = rentalRows.filter((rental) => new Date(rental.createdAt) >= start)
+  const totalBooked = periodRentals.reduce((sum, rental) => sum + rental.totalAmount, 0)
+  const totalCollectedInPeriod = periodRentals.reduce((sum, rental) => sum + rental.amountPaid, 0)
+
+  const periodExpenses = expenseRows.filter((expense) => new Date(expense.date) >= start)
+  const totalExpenses = periodExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+
+  const expensesByCategoryMap = new Map<string, number>()
+  for (const expense of periodExpenses) {
+    expensesByCategoryMap.set(expense.category, (expensesByCategoryMap.get(expense.category) ?? 0) + expense.amount)
+  }
+  const expensesByCategory = Array.from(expensesByCategoryMap.entries())
+    .map(([category, amount]) => ({ category, amount, amountFormatted: formatFcfa(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+
+  const rentedCount = vehicleRows.filter((vehicle) => vehicle.status === 'rented').length
+
+  // Cumulative, not period-filtered — a client's value is read over their whole history, not one period.
+  const topClients = clientRows
+    .map((client) => {
+      const totalPaid = rentalRows.filter((rental) => rental.clientId === client.id).reduce((sum, rental) => sum + rental.amountPaid, 0)
+      return { id: client.id, name: client.name, totalPaid, totalPaidFormatted: formatFcfa(totalPaid) }
+    })
+    .filter((client) => client.totalPaid > 0)
+    .sort((a, b) => b.totalPaid - a.totalPaid)
+    .slice(0, 5)
+
+  return {
+    totalBooked,
+    totalBookedFormatted: formatFcfa(totalBooked),
+    totalCollectedInPeriod,
+    totalCollectedInPeriodFormatted: formatFcfa(totalCollectedInPeriod),
+    totalExpenses,
+    totalExpensesFormatted: formatFcfa(totalExpenses),
+    net: totalCollectedInPeriod - totalExpenses,
+    netFormatted: formatFcfa(totalCollectedInPeriod - totalExpenses),
+    fleetUtilizationRate: vehicleRows.length > 0 ? Math.round((rentedCount / vehicleRows.length) * 100) : 0,
+    expensesByCategory,
+    topClients,
   }
 }
 
