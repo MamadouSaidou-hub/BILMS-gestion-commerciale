@@ -1,4 +1,5 @@
 import { Analytics } from '@vercel/analytics/next'
+import { PwaUpdateWatcher } from '@/components/pwa-update-watcher'
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
@@ -10,6 +11,13 @@ export const metadata: Metadata = {
   title: `${companyInfo.shortName} · Tableau de bord`,
   description: 'Pilotez vos magasins, vos ventes et votre trésorerie depuis un seul espace.',
   generator: `${companyInfo.shortName} ${companyInfo.displayName}`,
+  // iOS ignores the web manifest for "Add to Home Screen" — these meta tags are what actually
+  // make it launch standalone (no Safari chrome) instead of just opening a bookmarked tab.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: companyInfo.shortName,
+  },
 }
 
 export const viewport: Viewport = {
@@ -40,6 +48,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="antialiased">
+        <PwaUpdateWatcher />
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
