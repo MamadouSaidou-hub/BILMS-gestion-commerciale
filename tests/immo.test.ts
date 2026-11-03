@@ -1,14 +1,16 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { buildingExpenses, buildings, leases, rentPayments, units } from '@/lib/db/schema'
-import { createBuilding, createLease, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease } from '@/lib/db/mutations/immo'
+import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
+import { createBuilding, createLease, createTenant, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease } from '@/lib/db/mutations/immo'
+import { getTenantDetail } from '@/lib/db/queries/immo'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const buildingIds: number[] = []
 const unitIds: number[] = []
 const leaseIds: number[] = []
 const expenseIds: number[] = []
+const tenantIds: number[] = []
 
 async function makeUnit(label: string, monthlyRent = 500000) {
   const building = await createBuilding({ name: `Immeuble ${label} ${runId}`, address: 'Adresse test' })
@@ -22,7 +24,12 @@ afterAll(async () => {
   for (const id of expenseIds) {
     await db.delete(buildingExpenses).where(eq(buildingExpenses.id, id))
   }
+  // Every createLease() call auto-creates a tenant row (unless an existing tenantId was passed) —
+  // collect them before the leases are gone, so none are left orphaned in the real tenants table.
+  const leaseTenantIds = new Set(tenantIds)
   for (const id of leaseIds) {
+    const [lease] = await db.select({ tenantId: leases.tenantId }).from(leases).where(eq(leases.id, id))
+    if (lease) leaseTenantIds.add(lease.tenantId)
     await db.delete(rentPayments).where(eq(rentPayments.leaseId, id))
     await db.delete(leases).where(eq(leases.id, id))
   }
@@ -31,6 +38,9 @@ afterAll(async () => {
   }
   for (const id of buildingIds) {
     await db.delete(buildings).where(eq(buildings.id, id))
+  }
+  for (const id of leaseTenantIds) {
+    await db.delete(tenants).where(eq(tenants.id, id))
   }
 })
 
@@ -110,6 +120,46 @@ describe('renewLease', () => {
     await endLease(lease.id)
 
     await expect(renewLease(lease.id, 1)).rejects.toThrow(/actif/i)
+  })
+})
+
+describe('createLease with a tenant dossier', () => {
+  it('creates a new tenant when given a name, and links the lease to it', async () => {
+    const unit = await makeUnit('H')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Nouveau Locataire', tenantPhone: '600000000', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    tenantIds.push(lease.tenantId)
+
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, lease.tenantId))
+    expect(tenant.name).toBe('Nouveau Locataire')
+    expect(tenant.phone).toBe('600000000')
+  })
+
+  it('reuses an existing tenant (no duplicate created) and links every lease into one history', async () => {
+    const tenant = await createTenant({ name: 'Locataire Récurrent', phone: '611111111' })
+    tenantIds.push(tenant.id)
+
+    const unitA = await makeUnit('I1')
+    const leaseA = await createLease({ unitId: unitA.id, tenantId: tenant.id, startDate: '2026-11-01', months: 6 })
+    leaseIds.push(leaseA.id)
+    expect(leaseA.tenantName).toBe('Locataire Récurrent')
+
+    await endLease(leaseA.id)
+
+    const unitB = await makeUnit('I2')
+    const leaseB = await createLease({ unitId: unitB.id, tenantId: tenant.id, startDate: '2027-01-01', months: 6 })
+    leaseIds.push(leaseB.id)
+
+    const tenantRows = await db.select().from(tenants).where(eq(tenants.id, tenant.id))
+    expect(tenantRows).toHaveLength(1)
+
+    const detail = await getTenantDetail(tenant.id)
+    expect(detail?.leases.map((l) => l.id).sort()).toEqual([leaseA.id, leaseB.id].sort())
+  })
+
+  it('rejects a lease with neither tenantId nor tenantName', async () => {
+    const unit = await makeUnit('J')
+    await expect(createLease({ unitId: unit.id, startDate: '2026-11-01', months: 12 })).rejects.toThrow(/nom du locataire/i)
   })
 })
 

@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../client'
-import { vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { daysUntil } from '@/lib/dates'
 
@@ -13,6 +13,7 @@ export async function getVehiclesOverview() {
     id: rental.id,
     vehicleId: rental.vehicleId,
     vehicleName: vehicleRows.find((v) => v.id === rental.vehicleId)?.name ?? '—',
+    clientId: rental.clientId,
     clientName: rental.clientName,
     clientPhone: rental.clientPhone,
     startDate: rental.startDate,
@@ -82,6 +83,54 @@ export async function getVehicleOptions() {
 // against a vehicle regardless of its current status — including one that's currently rented out.
 export async function getAllVehicleOptions() {
   return db.select({ id: vehicles.id, name: vehicles.name, plate: vehicles.plate }).from(vehicles).orderBy(vehicles.name)
+}
+
+export async function getRentalClientsOverview() {
+  const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
+  const rentalRows = await db.select().from(vehicleRentals)
+
+  const result = clientRows.map((client) => {
+    const clientRentals = rentalRows.filter((rental) => rental.clientId === client.id)
+    const totalPaid = clientRentals.reduce((sum, rental) => sum + rental.amountPaid, 0)
+    return {
+      id: client.id,
+      name: client.name,
+      phone: client.phone ?? '—',
+      rentalsCount: clientRentals.length,
+      hasActiveRental: clientRentals.some((rental) => rental.status === 'active'),
+      totalPaid,
+      totalPaidFormatted: formatFcfa(totalPaid),
+    }
+  })
+
+  return { clients: result }
+}
+
+export async function getRentalClientDetail(clientId: number) {
+  const [client] = await db.select().from(rentalClients).where(eq(rentalClients.id, clientId))
+  if (!client) return null
+
+  const rentalRows = await db.select().from(vehicleRentals).where(eq(vehicleRentals.clientId, clientId)).orderBy(desc(vehicleRentals.createdAt))
+  const vehicleRows = await db.select().from(vehicles)
+
+  const rentalHistory = rentalRows.map((rental) => ({
+    id: rental.id,
+    vehicleName: vehicleRows.find((v) => v.id === rental.vehicleId)?.name ?? '—',
+    startDate: rental.startDate,
+    plannedEndDate: rental.plannedEndDate,
+    endDate: rental.endDate,
+    status: rental.status,
+    totalAmountFormatted: formatFcfa(rental.totalAmount),
+    amountPaidFormatted: formatFcfa(rental.amountPaid),
+    paymentStatus: rental.paymentStatus,
+  }))
+
+  return {
+    id: client.id,
+    name: client.name,
+    phone: client.phone ?? '—',
+    rentals: rentalHistory,
+  }
 }
 
 export async function getRentalDetail(rentalId: number) {

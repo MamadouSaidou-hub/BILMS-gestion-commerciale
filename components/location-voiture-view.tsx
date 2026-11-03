@@ -13,6 +13,7 @@ type Rental = {
   id: number
   vehicleId: number
   vehicleName: string
+  clientId: number
   clientName: string
   clientPhone: string | null
   startDate: string
@@ -25,6 +26,7 @@ type Rental = {
   status: 'active' | 'completed' | 'cancelled'
 }
 type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amountFormatted: string; notes: string | null }
+type RentalClientOption = { id: number; name: string; phone: string }
 type Summary = {
   totalCollectedFormatted: string
   totalExpensesFormatted: string
@@ -95,7 +97,9 @@ function NewVehicleForm({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function NewRentalForm({ vehicle, onCreated }: { vehicle: Vehicle; onCreated: () => void }) {
+function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle; clientOptions: RentalClientOption[]; onCreated: () => void }) {
+  const [creatingClient, setCreatingClient] = useState(clientOptions.length === 0)
+  const [clientId, setClientId] = useState('')
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -106,12 +110,16 @@ function NewRentalForm({ vehicle, onCreated }: { vehicle: Vehicle; onCreated: ()
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError('')
+    if (!creatingClient && !clientId) {
+      setError('Choisissez un client ou créez-en un nouveau.')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch(`/api/vehicules/${vehicle.id}/locations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientName, clientPhone, startDate, days }),
+        body: JSON.stringify(creatingClient ? { clientName, clientPhone, startDate, days } : { clientId, startDate, days }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -130,9 +138,26 @@ function NewRentalForm({ vehicle, onCreated }: { vehicle: Vehicle; onCreated: ()
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">Tarif journalier : <strong>{vehicle.dailyRateFormatted}</strong></p>
-      <div className="form-row">
-        <div className="form-field"><label>Client</label><input required value={clientName} onChange={(event) => setClientName(event.target.value)} /></div>
-        <div className="form-field"><label>Téléphone</label><input value={clientPhone} onChange={(event) => setClientPhone(event.target.value)} placeholder="6XX XX XX XX" /></div>
+      <div className="form-field">
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Client</span>
+          {clientOptions.length > 0 && (
+            <button type="button" className="item-add-link" style={{ fontSize: 11 }} onClick={() => setCreatingClient((value) => !value)}>
+              {creatingClient ? 'Choisir un client existant' : '+ Nouveau client'}
+            </button>
+          )}
+        </label>
+        {creatingClient ? (
+          <div className="form-row" style={{ marginTop: 6 }}>
+            <input required placeholder="Nom du client" value={clientName} onChange={(event) => setClientName(event.target.value)} />
+            <input placeholder="Téléphone (optionnel)" value={clientPhone} onChange={(event) => setClientPhone(event.target.value)} />
+          </div>
+        ) : (
+          <select required value={clientId} onChange={(event) => setClientId(event.target.value)}>
+            <option value="">Sélectionner...</option>
+            {clientOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.phone !== '—' ? ` — ${option.phone}` : ''}</option>)}
+          </select>
+        )}
       </div>
       <div className="form-row">
         <div className="form-field"><label>Date de début</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
@@ -313,6 +338,7 @@ export function LocationVoitureView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [clientOptions, setClientOptions] = useState<RentalClientOption[]>([])
   const [vehicleModalOpen, setVehicleModalOpen] = useState(false)
   const [rentalVehicle, setRentalVehicle] = useState<Vehicle | null>(null)
   const [closingRental, setClosingRental] = useState<Rental | null>(null)
@@ -328,6 +354,7 @@ export function LocationVoitureView() {
       .then((json) => setData(json))
       .catch((err) => setError(err instanceof Error ? err.message : 'Erreur inconnue.'))
       .finally(() => setLoading(false))
+    fetchJson<{ clients: RentalClientOption[] }>('/api/clients-location').then((json) => setClientOptions(json.clients)).catch(() => {})
   }, [refreshKey])
 
   const availableCount = useMemo(() => (data?.vehicles ?? []).filter((v) => v.status === 'available').length, [data])
@@ -410,7 +437,7 @@ export function LocationVoitureView() {
               {(data?.rentals ?? []).map((rental) => (
                 <tr key={rental.id}>
                   <td data-label="Véhicule">{rental.vehicleName}</td>
-                  <td data-label="Client">{rental.clientName}</td>
+                  <td data-label="Client"><Link href={`/location-voiture/clients/${rental.clientId}`}>{rental.clientName}</Link></td>
                   <td data-label="Début">{rental.startDate}</td>
                   <td data-label="Fin prévue">{rental.plannedEndDate}</td>
                   <td data-label="Retour réel">{rental.endDate ?? '—'}</td>
@@ -461,7 +488,7 @@ export function LocationVoitureView() {
         <NewVehicleForm onCreated={() => { setVehicleModalOpen(false); setRefreshKey((key) => key + 1) }} />
       </Modal>
       <Modal open={rentalVehicle !== null} onClose={() => setRentalVehicle(null)} title={`Nouvelle location — ${rentalVehicle?.name ?? ''}`} subtitle="Créez une location pour ce véhicule.">
-        {rentalVehicle && <NewRentalForm vehicle={rentalVehicle} onCreated={() => { setRentalVehicle(null); setRefreshKey((key) => key + 1) }} />}
+        {rentalVehicle && <NewRentalForm vehicle={rentalVehicle} clientOptions={clientOptions} onCreated={() => { setRentalVehicle(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
       <Modal open={closingRental !== null} onClose={() => setClosingRental(null)} title="Clôturer la location" subtitle="Enregistrez le retour du véhicule.">
         {closingRental && <CloseRentalForm rental={closingRental} onDone={() => { setClosingRental(null); setRefreshKey((key) => key + 1) }} />}

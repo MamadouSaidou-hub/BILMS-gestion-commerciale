@@ -1,13 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
-import { createRental, closeRental, createVehicle, recordRentalPayment, recordVehicleExpense, renewRental } from '@/lib/db/mutations/location-voiture'
+import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import { createRental, closeRental, createRentalClient, createVehicle, recordRentalPayment, recordVehicleExpense, renewRental } from '@/lib/db/mutations/location-voiture'
+import { getRentalClientDetail } from '@/lib/db/queries/location-voiture'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const vehicleIds: number[] = []
 const rentalIds: number[] = []
 const expenseIds: number[] = []
+const explicitClientIds: number[] = []
 
 async function makeVehicle(suffix: string, dailyRate = 10000) {
   const vehicle = await createVehicle({ name: `Véhicule ${suffix} ${runId}`, plate: `TEST-${suffix}-${runId}`, dailyRate })
@@ -19,11 +21,20 @@ afterAll(async () => {
   for (const id of expenseIds) {
     await db.delete(vehicleExpenses).where(eq(vehicleExpenses.id, id))
   }
+  // Every createRental() call auto-creates a rental client (unless an existing clientId was
+  // passed) — collect them before the rentals are gone, so none are left orphaned in the real
+  // rental_clients table.
+  const rentalClientIds = new Set(explicitClientIds)
   for (const id of rentalIds) {
+    const [rental] = await db.select({ clientId: vehicleRentals.clientId }).from(vehicleRentals).where(eq(vehicleRentals.id, id))
+    if (rental) rentalClientIds.add(rental.clientId)
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
   for (const id of vehicleIds) {
     await db.delete(vehicles).where(eq(vehicles.id, id))
+  }
+  for (const id of rentalClientIds) {
+    await db.delete(rentalClients).where(eq(rentalClients.id, id))
   }
 })
 
@@ -104,6 +115,44 @@ describe('renewRental', () => {
 
     const renewed = await renewRental(rental.id, 2)
     expect(renewed.paymentStatus).toBe('partial')
+  })
+})
+
+describe('createRental with a rental client dossier', () => {
+  it('creates a new rental client when given a name, and links the rental to it', async () => {
+    const vehicle = await makeVehicle('K')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Nouveau Client', clientPhone: '622222222', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    const [client] = await db.select().from(rentalClients).where(eq(rentalClients.id, rental.clientId))
+    expect(client.name).toBe('Nouveau Client')
+    expect(client.phone).toBe('622222222')
+  })
+
+  it('reuses an existing rental client (no duplicate created) and links every rental into one history', async () => {
+    const client = await createRentalClient({ name: 'Client Récurrent', phone: '633333333' })
+    explicitClientIds.push(client.id)
+
+    const vehicleA = await makeVehicle('L1')
+    const rentalA = await createRental({ vehicleId: vehicleA.id, clientId: client.id, startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rentalA.id)
+    expect(rentalA.clientName).toBe('Client Récurrent')
+    await closeRental(rentalA.id, { endDate: '2026-11-02' })
+
+    const vehicleB = await makeVehicle('L2')
+    const rentalB = await createRental({ vehicleId: vehicleB.id, clientId: client.id, startDate: '2026-12-01', days: 1 })
+    rentalIds.push(rentalB.id)
+
+    const clientRows = await db.select().from(rentalClients).where(eq(rentalClients.id, client.id))
+    expect(clientRows).toHaveLength(1)
+
+    const detail = await getRentalClientDetail(client.id)
+    expect(detail?.rentals.map((r) => r.id).sort()).toEqual([rentalA.id, rentalB.id].sort())
+  })
+
+  it('rejects a rental with neither clientId nor clientName', async () => {
+    const vehicle = await makeVehicle('M')
+    await expect(createRental({ vehicleId: vehicle.id, startDate: '2026-11-01', days: 1 })).rejects.toThrow(/nom du client/i)
   })
 })
 

@@ -1,7 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../client'
-import { vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
+
+export async function createRentalClient(input: { name: string; phone?: string | null }) {
+  const [client] = await db.insert(rentalClients).values({ name: input.name, phone: input.phone ?? null }).returning()
+  return client
+}
 
 export async function createVehicle(input: { name: string; plate: string; dailyRate: number; notes?: string | null }) {
   if (input.dailyRate <= 0) {
@@ -16,7 +21,10 @@ export async function createVehicle(input: { name: string; plate: string; dailyR
 
 export async function createRental(input: {
   vehicleId: number
-  clientName: string
+  // Either an existing client (clientId) or a brand-new one entered inline (clientName, +
+  // optional clientPhone) — exactly one of the two paths, enforced by the API route.
+  clientId?: number
+  clientName?: string
   clientPhone?: string | null
   startDate: string
   days: number
@@ -34,13 +42,32 @@ export async function createRental(input: {
       throw new Error('Ce véhicule n’est pas disponible.')
     }
 
+    let clientId = input.clientId
+    let clientName = input.clientName
+    let clientPhone = input.clientPhone ?? null
+    if (!clientId) {
+      if (!clientName) {
+        throw new Error('Nom du client requis.')
+      }
+      const [client] = await tx.insert(rentalClients).values({ name: clientName, phone: clientPhone }).returning()
+      clientId = client.id
+    } else {
+      const [client] = await tx.select().from(rentalClients).where(eq(rentalClients.id, clientId))
+      if (!client) {
+        throw new Error('Client introuvable.')
+      }
+      clientName = client.name
+      clientPhone = client.phone
+    }
+
     const totalAmount = vehicle.dailyRate * input.days
     const [rental] = await tx
       .insert(vehicleRentals)
       .values({
         vehicleId: input.vehicleId,
-        clientName: input.clientName,
-        clientPhone: input.clientPhone ?? null,
+        clientId,
+        clientName: clientName!,
+        clientPhone,
         startDate: input.startDate,
         plannedEndDate: addDays(input.startDate, input.days),
         dailyRate: vehicle.dailyRate,

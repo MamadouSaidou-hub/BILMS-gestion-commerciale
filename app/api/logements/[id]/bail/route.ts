@@ -12,17 +12,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const unitId = Number(id)
   const body = await request.json()
 
-  const tenantName = String(body.tenantName ?? '').trim()
+  const tenantId = body.tenantId !== undefined && body.tenantId !== null && body.tenantId !== '' ? Number(body.tenantId) : undefined
+  const tenantName = body.tenantName ? String(body.tenantName).trim() : undefined
   const startDate = String(body.startDate ?? '').trim()
   const months = Number(body.months)
 
-  if (!Number.isFinite(unitId) || !tenantName || !startDate || !Number.isFinite(months) || months <= 0) {
+  if (!Number.isFinite(unitId) || (!tenantId && !tenantName) || !startDate || !Number.isFinite(months) || months <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
   try {
     const lease = await createLease({
       unitId,
+      tenantId,
       tenantName,
       tenantPhone: body.tenantPhone ? String(body.tenantPhone).trim() : undefined,
       startDate,

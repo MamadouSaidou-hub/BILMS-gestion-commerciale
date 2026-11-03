@@ -12,17 +12,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const vehicleId = Number(id)
   const body = await request.json()
 
-  const clientName = String(body.clientName ?? '').trim()
+  const clientId = body.clientId !== undefined && body.clientId !== null && body.clientId !== '' ? Number(body.clientId) : undefined
+  const clientName = body.clientName ? String(body.clientName).trim() : undefined
   const startDate = String(body.startDate ?? '').trim()
   const days = Number(body.days)
 
-  if (!Number.isFinite(vehicleId) || !clientName || !startDate || !Number.isFinite(days) || days <= 0) {
+  if (!Number.isFinite(vehicleId) || (!clientId && !clientName) || !startDate || !Number.isFinite(days) || days <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
   try {
     const rental = await createRental({
       vehicleId,
+      clientId,
       clientName,
       clientPhone: body.clientPhone ? String(body.clientPhone).trim() : undefined,
       startDate,

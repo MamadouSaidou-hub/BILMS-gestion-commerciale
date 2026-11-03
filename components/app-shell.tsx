@@ -56,13 +56,19 @@ const navGroups = [
     key: 'immo',
     label: 'Immo',
     icon: Building2,
-    items: [{ href: '/immo', label: 'Immeubles', icon: Building2, adminOnly: true }],
+    items: [
+      { href: '/immo', label: 'Immeubles', icon: Building2, adminOnly: true },
+      { href: '/immo/locataires', label: 'Locataires', icon: Users, adminOnly: true },
+    ],
   },
   {
     key: 'location',
     label: 'Location voiture',
     icon: Car,
-    items: [{ href: '/location-voiture', label: 'Véhicules', icon: Car, adminOnly: true }],
+    items: [
+      { href: '/location-voiture', label: 'Véhicules', icon: Car, adminOnly: true },
+      { href: '/location-voiture/clients', label: 'Clients', icon: Users, adminOnly: true },
+    ],
   },
 ]
 

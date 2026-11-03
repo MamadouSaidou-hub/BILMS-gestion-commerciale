@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../client'
-import { buildingExpenses, buildings, leases, rentPayments, units } from '../schema'
+import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { daysUntil } from '@/lib/dates'
 
@@ -39,6 +39,7 @@ export async function getBuildingsOverview() {
           activeLease: activeLease
             ? {
                 id: activeLease.id,
+                tenantId: activeLease.tenantId,
                 tenantName: activeLease.tenantName,
                 tenantPhone: activeLease.tenantPhone,
                 startDate: activeLease.startDate,
@@ -86,6 +87,62 @@ export async function getBuildingsOverview() {
 
 export async function getBuildingOptions() {
   return db.select({ id: buildings.id, name: buildings.name }).from(buildings).orderBy(buildings.name)
+}
+
+export async function getTenantsOverview() {
+  const tenantRows = await db.select().from(tenants).orderBy(tenants.name)
+  const leaseRows = await db.select().from(leases)
+  const paymentRows = await db.select().from(rentPayments)
+
+  const result = tenantRows.map((tenant) => {
+    const tenantLeases = leaseRows.filter((lease) => lease.tenantId === tenant.id)
+    const leaseIds = new Set(tenantLeases.map((lease) => lease.id))
+    const totalPaid = paymentRows.filter((payment) => leaseIds.has(payment.leaseId) && payment.status === 'paid').reduce((sum, payment) => sum + payment.amount, 0)
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      phone: tenant.phone ?? '—',
+      leasesCount: tenantLeases.length,
+      hasActiveLease: tenantLeases.some((lease) => lease.status === 'active'),
+      totalPaid,
+      totalPaidFormatted: formatFcfa(totalPaid),
+    }
+  })
+
+  return { tenants: result }
+}
+
+export async function getTenantDetail(tenantId: number) {
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId))
+  if (!tenant) return null
+
+  const leaseRows = await db.select().from(leases).where(eq(leases.tenantId, tenantId)).orderBy(desc(leases.createdAt))
+  const unitRows = await db.select().from(units)
+  const buildingRows = await db.select().from(buildings)
+  const paymentRows = await db.select().from(rentPayments)
+
+  const leaseHistory = leaseRows.map((lease) => {
+    const unit = unitRows.find((u) => u.id === lease.unitId)
+    const building = unit ? buildingRows.find((b) => b.id === unit.buildingId) : undefined
+    const leasePayments = paymentRows.filter((payment) => payment.leaseId === lease.id)
+    return {
+      id: lease.id,
+      unitLabel: unit?.label ?? '—',
+      buildingName: building?.name ?? '—',
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+      status: lease.status,
+      monthlyRentFormatted: formatFcfa(lease.monthlyRent),
+      payments: leasePayments.map((payment) => ({ id: payment.id, period: payment.period, status: payment.status, amountFormatted: formatFcfa(payment.amount) })),
+    }
+  })
+
+  return {
+    id: tenant.id,
+    name: tenant.name,
+    phone: tenant.phone ?? '—',
+    leases: leaseHistory,
+  }
 }
 
 export async function getRentPaymentDetail(paymentId: number) {

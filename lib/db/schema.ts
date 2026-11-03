@@ -381,6 +381,17 @@ export const vehicles = pgTable('vehicles', {
   ...timestamps,
 })
 
+// Minimal, standalone directory of car-rental clients — same shape as the boutique's `clients`
+// table, kept separate from it on purpose (a rental client isn't a shop client) and separate from
+// Immo's `tenants` below (rarely the same real-world lookup). Lets the same person's rentals be
+// linked together into one history instead of being independent free-text name/phone pairs.
+export const rentalClients = pgTable('rental_clients', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  phone: text('phone'),
+  ...timestamps,
+})
+
 export const rentalPaymentStatus = ['paid', 'partial', 'unpaid'] as const
 export const rentalStatus = ['active', 'completed', 'cancelled'] as const
 export const vehicleRentals = pgTable('vehicle_rentals', {
@@ -388,6 +399,11 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
   vehicleId: integer('vehicle_id')
     .notNull()
     .references(() => vehicles.id, { onDelete: 'restrict' }),
+  clientId: integer('client_id')
+    .notNull()
+    .references(() => rentalClients.id, { onDelete: 'restrict' }),
+  // Snapshot of the client's name/phone at booking time — kept so invoices/queries that already
+  // read these columns directly keep working unchanged; the source of truth is now `clientId`.
   clientName: text('client_name').notNull(),
   clientPhone: text('client_phone'),
   startDate: text('start_date').notNull(),
@@ -431,12 +447,28 @@ export const units = pgTable('units', {
   ...timestamps,
 })
 
+// Minimal, standalone directory of tenants — same shape as the boutique's `clients` table, kept
+// separate from it and from Location voiture's `rentalClients` on purpose. Lets the same tenant's
+// leases be linked together into one history instead of being independent free-text name/phone
+// pairs.
+export const tenants = pgTable('tenants', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  phone: text('phone'),
+  ...timestamps,
+})
+
 export const leaseStatus = ['active', 'ended'] as const
 export const leases = pgTable('leases', {
   id: serial('id').primaryKey(),
   unitId: integer('unit_id')
     .notNull()
     .references(() => units.id, { onDelete: 'restrict' }),
+  tenantId: integer('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'restrict' }),
+  // Snapshot of the tenant's name/phone at lease signing — kept so invoices/queries that already
+  // read these columns directly keep working unchanged; the source of truth is now `tenantId`.
   tenantName: text('tenant_name').notNull(),
   tenantPhone: text('tenant_phone'),
   // Snapshot of the unit's rent at lease signing — later rent changes on the unit shouldn't
@@ -499,6 +531,11 @@ export const buildingExpensesRelations = relations(buildingExpenses, ({ one }) =
 
 export const vehicleRentalsRelations = relations(vehicleRentals, ({ one }) => ({
   vehicle: one(vehicles, { fields: [vehicleRentals.vehicleId], references: [vehicles.id] }),
+  client: one(rentalClients, { fields: [vehicleRentals.clientId], references: [rentalClients.id] }),
+}))
+
+export const rentalClientsRelations = relations(rentalClients, ({ many }) => ({
+  rentals: many(vehicleRentals),
 }))
 
 export const buildingsRelations = relations(buildings, ({ many }) => ({
@@ -513,7 +550,12 @@ export const unitsRelations = relations(units, ({ one, many }) => ({
 
 export const leasesRelations = relations(leases, ({ one, many }) => ({
   unit: one(units, { fields: [leases.unitId], references: [units.id] }),
+  tenant: one(tenants, { fields: [leases.tenantId], references: [tenants.id] }),
   rentPayments: many(rentPayments),
+}))
+
+export const tenantsRelations = relations(tenants, ({ many }) => ({
+  leases: many(leases),
 }))
 
 export const rentPaymentsRelations = relations(rentPayments, ({ one }) => ({

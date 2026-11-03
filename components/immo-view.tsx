@@ -9,7 +9,8 @@ import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 
 type Payment = { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
-type ActiveLease = { id: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; payments: Payment[] }
+type ActiveLease = { id: number; tenantId: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; payments: Payment[] }
+type TenantOption = { id: number; name: string; phone: string }
 type Unit = { id: number; label: string; floor: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
 type Building = { id: number; name: string; address: string; units: Unit[] }
 type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
@@ -126,7 +127,9 @@ function NewUnitForm({ building, onCreated }: { building: Building; onCreated: (
   )
 }
 
-function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }) {
+function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOptions: TenantOption[]; onCreated: () => void }) {
+  const [creatingTenant, setCreatingTenant] = useState(tenantOptions.length === 0)
+  const [tenantId, setTenantId] = useState('')
   const [tenantName, setTenantName] = useState('')
   const [tenantPhone, setTenantPhone] = useState('')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -137,12 +140,16 @@ function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError('')
+    if (!creatingTenant && !tenantId) {
+      setError('Choisissez un locataire ou créez-en un nouveau.')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch(`/api/logements/${unit.id}/bail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantName, tenantPhone, startDate, months }),
+        body: JSON.stringify(creatingTenant ? { tenantName, tenantPhone, startDate, months } : { tenantId, startDate, months }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -161,9 +168,26 @@ function NewLeaseForm({ unit, onCreated }: { unit: Unit; onCreated: () => void }
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">Loyer : <strong>{unit.monthlyRentFormatted}</strong></p>
-      <div className="form-row">
-        <div className="form-field"><label>Locataire</label><input required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
-        <div className="form-field"><label>Téléphone</label><input value={tenantPhone} onChange={(event) => setTenantPhone(event.target.value)} placeholder="6XX XX XX XX" /></div>
+      <div className="form-field">
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Locataire</span>
+          {tenantOptions.length > 0 && (
+            <button type="button" className="item-add-link" style={{ fontSize: 11 }} onClick={() => setCreatingTenant((value) => !value)}>
+              {creatingTenant ? 'Choisir un locataire existant' : '+ Nouveau locataire'}
+            </button>
+          )}
+        </label>
+        {creatingTenant ? (
+          <div className="form-row" style={{ marginTop: 6 }}>
+            <input required placeholder="Nom du locataire" value={tenantName} onChange={(event) => setTenantName(event.target.value)} />
+            <input placeholder="Téléphone (optionnel)" value={tenantPhone} onChange={(event) => setTenantPhone(event.target.value)} />
+          </div>
+        ) : (
+          <select required value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+            <option value="">Sélectionner...</option>
+            {tenantOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.phone !== '—' ? ` — ${option.phone}` : ''}</option>)}
+          </select>
+        )}
       </div>
       <div className="form-row">
         <div className="form-field"><label>Date d’entrée</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
@@ -269,6 +293,7 @@ export function ImmoView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([])
   const [buildingModalOpen, setBuildingModalOpen] = useState(false)
   const [unitBuilding, setUnitBuilding] = useState<Building | null>(null)
   const [leaseUnit, setLeaseUnit] = useState<Unit | null>(null)
@@ -283,6 +308,7 @@ export function ImmoView() {
       .then((json) => setData(json))
       .catch((err) => setError(err instanceof Error ? err.message : 'Erreur inconnue.'))
       .finally(() => setLoading(false))
+    fetchJson<{ tenants: TenantOption[] }>('/api/locataires').then((json) => setTenantOptions(json.tenants)).catch(() => {})
   }, [refreshKey])
 
   const period = currentPeriod()
@@ -362,7 +388,7 @@ export function ImmoView() {
                     <td data-label="Étage">{unit.floor}</td>
                     <td data-label="Loyer">{unit.monthlyRentFormatted}</td>
                     <td data-label="Statut"><span className={`badge ${unit.status === 'occupied' ? 'badge-blue' : 'badge-green'}`}>{unit.status === 'occupied' ? 'Occupé' : 'Vacant'}</span></td>
-                    <td data-label="Locataire">{unit.activeLease?.tenantName ?? '—'}</td>
+                    <td data-label="Locataire">{unit.activeLease ? <Link href={`/immo/locataires/${unit.activeLease.tenantId}`}>{unit.activeLease.tenantName}</Link> : '—'}</td>
                     <td data-label="Fin de bail">{unit.activeLease?.endDate ?? '—'}</td>
                     <td data-label={`Loyer ${period}`}>
                       {unit.activeLease ? (() => {
@@ -432,7 +458,7 @@ export function ImmoView() {
         {unitBuilding && <NewUnitForm building={unitBuilding} onCreated={() => { setUnitBuilding(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
       <Modal open={leaseUnit !== null} onClose={() => setLeaseUnit(null)} title={`Nouveau bail — ${leaseUnit?.label ?? ''}`} subtitle="Enregistrez un nouveau locataire.">
-        {leaseUnit && <NewLeaseForm unit={leaseUnit} onCreated={() => { setLeaseUnit(null); setRefreshKey((key) => key + 1) }} />}
+        {leaseUnit && <NewLeaseForm unit={leaseUnit} tenantOptions={tenantOptions} onCreated={() => { setLeaseUnit(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
       <Modal open={renewingLease !== null} onClose={() => setRenewingLease(null)} title="Renouveler le bail" subtitle="">
         {renewingLease && <RenewLeaseForm leaseId={renewingLease.id} currentEndDate={renewingLease.endDate} onDone={() => { setRenewingLease(null); setRefreshKey((key) => key + 1) }} />}

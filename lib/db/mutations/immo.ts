@@ -1,7 +1,12 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../client'
-import { buildingExpenses, buildings, leases, rentPayments, units } from '../schema'
+import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
 import { addMonths } from '@/lib/dates'
+
+export async function createTenant(input: { name: string; phone?: string | null }) {
+  const [tenant] = await db.insert(tenants).values({ name: input.name, phone: input.phone ?? null }).returning()
+  return tenant
+}
 
 export async function recordBuildingExpense(input: { buildingId?: number | null; date: string; category: string; amount: number; notes?: string | null }) {
   if (input.amount <= 0) {
@@ -32,7 +37,10 @@ export async function createUnit(input: { buildingId: number; label: string; flo
 
 export async function createLease(input: {
   unitId: number
-  tenantName: string
+  // Either an existing tenant (tenantId) or a brand-new one entered inline (tenantName, +
+  // optional tenantPhone) — exactly one of the two paths, enforced by the API route.
+  tenantId?: number
+  tenantName?: string
   tenantPhone?: string | null
   startDate: string
   months: number
@@ -50,12 +58,31 @@ export async function createLease(input: {
       throw new Error('Ce logement n’est pas vacant.')
     }
 
+    let tenantId = input.tenantId
+    let tenantName = input.tenantName
+    let tenantPhone = input.tenantPhone ?? null
+    if (!tenantId) {
+      if (!tenantName) {
+        throw new Error('Nom du locataire requis.')
+      }
+      const [tenant] = await tx.insert(tenants).values({ name: tenantName, phone: tenantPhone }).returning()
+      tenantId = tenant.id
+    } else {
+      const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId))
+      if (!tenant) {
+        throw new Error('Locataire introuvable.')
+      }
+      tenantName = tenant.name
+      tenantPhone = tenant.phone
+    }
+
     const [lease] = await tx
       .insert(leases)
       .values({
         unitId: input.unitId,
-        tenantName: input.tenantName,
-        tenantPhone: input.tenantPhone ?? null,
+        tenantId,
+        tenantName: tenantName!,
+        tenantPhone,
         startDate: input.startDate,
         endDate: addMonths(input.startDate, input.months),
         monthlyRent: unit.monthlyRent,
