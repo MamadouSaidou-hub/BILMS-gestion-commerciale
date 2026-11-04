@@ -270,21 +270,6 @@ export function AppShell({
         </div>
         <div className="page-body">{children}</div>
       </main>
-
-      <nav className="bottom-tab-bar" aria-label="Navigation principale (mobile)">
-        <Link href="/" className={`bottom-tab ${pathname === '/' ? 'active' : ''}`}>
-          <LayoutDashboard size={20} /><span>Accueil</span>
-        </Link>
-        <Link href="/ventes" className={`bottom-tab ${pathname === '/ventes' ? 'active' : ''}`}>
-          <ShoppingCart size={20} /><span>Ventes</span>
-        </Link>
-        <Link href="/stock" className={`bottom-tab ${pathname === '/stock' ? 'active' : ''}`}>
-          <Package size={20} /><span>Stock</span>
-        </Link>
-        <button type="button" className={`bottom-tab ${menuOpen ? 'active' : ''}`} onClick={() => setMenuOpen(true)}>
-          <Menu size={20} /><span>Menu</span>
-        </button>
-      </nav>
     </div>
   )
 }
