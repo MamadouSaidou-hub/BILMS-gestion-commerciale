@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ChevronDown, ClipboardCheck, Layers, Package, PackagePlus, Plus, Search, Upload, Wallet } from 'lucide-react'
+import { SkeletonCards, SkeletonRows } from '@/components/skeleton'
 import { AppShell } from '@/components/app-shell'
 import { downloadCsv } from '@/lib/download-csv'
 import { fetchJson } from '@/lib/fetch-json'
@@ -328,6 +329,7 @@ function StockCountForm({
 export function StockView() {
   const [store, setStore] = useState('Tous les magasins')
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | StockItem['status']>('all')
   const [data, setData] = useState<StockData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -374,11 +376,12 @@ export function StockView() {
 
   const stores = data?.stores ?? ['Tous les magasins']
   const filteredItems = useMemo(() => {
-    const items = data?.items ?? []
+    let items = data?.items ?? []
+    if (statusFilter !== 'all') items = items.filter((item) => item.status === statusFilter)
     const query = search.trim().toLowerCase()
     if (!query) return items
     return items.filter((item) => item.name.toLowerCase().includes(query) || item.sku.toLowerCase().includes(query) || item.category.toLowerCase().includes(query))
-  }, [data, search])
+  }, [data, search, statusFilter])
 
   function refresh() {
     setProductModalOpen(false)
@@ -405,10 +408,14 @@ export function StockView() {
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
 
       <section className="metrics-grid" aria-label="Indicateurs stock">
-        <MetricCard label="Articles référencés" value={data ? `${data.summary.totalArticles}` : '—'} icon={Package} tone="navy" />
-        <MetricCard label="Quantité totale" value={data ? `${data.summary.totalQuantity}` : '—'} icon={Layers} tone="blue" />
-        <MetricCard label="Articles en alerte" value={data ? `${data.summary.lowCount}` : '—'} icon={AlertTriangle} tone="orange" />
-        <MetricCard label="Valeur du stock" value={data ? data.summary.stockValue : '—'} icon={Wallet} tone="green" />
+        {loading ? <SkeletonCards count={4} /> : (
+          <>
+            <MetricCard label="Articles référencés" value={`${data?.summary.totalArticles ?? 0}`} icon={Package} tone="navy" />
+            <MetricCard label="Quantité totale" value={`${data?.summary.totalQuantity ?? 0}`} icon={Layers} tone="blue" />
+            <MetricCard label="Articles en alerte" value={`${data?.summary.lowCount ?? 0}`} icon={AlertTriangle} tone="orange" />
+            <MetricCard label="Valeur du stock" value={data?.summary.stockValue ?? '—'} icon={Wallet} tone="green" />
+          </>
+        )}
       </section>
 
       <div className="toolbar-panel">
@@ -420,6 +427,13 @@ export function StockView() {
         <button className="btn-secondary" onClick={() => setCountModalOpen(true)}><ClipboardCheck size={14} /> Comptage physique</button>
         <button className="btn-secondary" onClick={() => setImportModalOpen(true)}><Upload size={14} /> Importer un catalogue</button>
         <button className="btn-primary" onClick={() => setProductModalOpen(true)}><Plus size={14} /> Nouvel article</button>
+      </div>
+
+      <div className="filter-chip-row" role="group" aria-label="Filtrer par statut">
+        <button type="button" className={`filter-chip ${statusFilter === 'all' ? 'active' : ''}`} onClick={() => setStatusFilter('all')}>Tous</button>
+        <button type="button" className={`filter-chip ${statusFilter === 'critical' ? 'active' : ''}`} onClick={() => setStatusFilter('critical')}>Critique</button>
+        <button type="button" className={`filter-chip ${statusFilter === 'low' ? 'active' : ''}`} onClick={() => setStatusFilter('low')}>Faible</button>
+        <button type="button" className={`filter-chip ${statusFilter === 'ok' ? 'active' : ''}`} onClick={() => setStatusFilter('ok')}>OK</button>
       </div>
 
       <div className="table-panel">
@@ -438,15 +452,16 @@ export function StockView() {
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map((item) => (
+              {loading && <SkeletonRows count={6} />}
+              {!loading && filteredItems.map((item) => (
                 <tr key={`${item.sku}-${item.store}`}>
                   <td data-label="Produit">{item.name}</td>
-                  <td data-label="SKU">{item.sku}</td>
-                  <td data-label="Catégorie">{item.category}</td>
+                  <td data-label="SKU" className="cell-secondary">{item.sku}</td>
+                  <td data-label="Catégorie" className="cell-secondary">{item.category}</td>
                   <td data-label="Magasin">{item.store}</td>
                   <td data-label="Quantité">{item.quantity}</td>
-                  <td data-label="Seuil">{item.threshold}</td>
-                  <td data-label="Prix unitaire">{item.unitPrice}</td>
+                  <td data-label="Seuil" className="cell-secondary">{item.threshold}</td>
+                  <td data-label="Prix unitaire" className="cell-secondary">{item.unitPrice}</td>
                   <td data-label="Statut"><span className={`badge ${statusBadge[item.status]}`}>{statusLabel[item.status]}</span></td>
                 </tr>
               ))}

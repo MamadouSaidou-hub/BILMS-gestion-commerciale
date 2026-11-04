@@ -77,7 +77,22 @@ button, a, select { -webkit-tap-highlight-color: transparent; }
   .data-table tbody tr:last-child { border-bottom: 0; }
   .data-table td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border-bottom: 0; white-space: normal; text-align: right; }
   .data-table td::before { content: attr(data-label); font-size: 9px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; text-align: left; flex-shrink: 0; }
+  .cell-secondary { display: none; }
 }
+@keyframes skeleton-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none !important; } }
+.skeleton-block { display: block; background: var(--surface-alt); border-radius: 4px; animation: skeleton-pulse 1.3s ease-in-out infinite; }
+.skeleton-row td { padding: 13px 18px; }
+.skeleton-row .skeleton-block { height: 14px; width: 100%; }
+.skeleton-card { display: flex; flex-direction: column; }
+.skeleton-card .skeleton-block { border-radius: 6px; }
+.filter-chip-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-chip { border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: 11px; font-weight: 700; padding: 7px 14px; border-radius: 16px; cursor: pointer; min-height: 32px; }
+.filter-chip.active { background: var(--tint-primary); border-color: var(--primary); color: var(--primary); }
+.pull-refresh-indicator { display: flex; align-items: center; justify-content: center; gap: 8px; height: 0; overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 700; transition: height .15s ease; }
+.pull-refresh-indicator.visible { height: 44px; }
+.pull-refresh-indicator svg { animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .invoice-page { background: #f4f6f9; min-height: 100vh; padding: 32px 16px; }
 .invoice-card { max-width: 760px; margin: 0 auto; background: white; border-radius: 14px; box-shadow: 0 1px 3px rgba(16,33,58,.08); overflow: hidden; font-family: system-ui, sans-serif; color: #142743; }
 .invoice-topbar { height: 6px; background: linear-gradient(90deg, #1a3c72, #c9952f); }
