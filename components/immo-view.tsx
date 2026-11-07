@@ -9,11 +9,12 @@ import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 
 type Payment = { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
-type ActiveLease = { id: number; tenantId: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; payments: Payment[] }
+type ActiveLease = { id: number; tenantId: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; depositAmount: number; depositAmountFormatted: string; payments: Payment[] }
 type TenantOption = { id: number; name: string; phone: string }
 type Unit = { id: number; label: string; floor: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
 type Building = { id: number; name: string; address: string; units: Unit[] }
 type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
+type UnpaidRent = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; period: string; amountFormatted: string; daysOverdue: number }
 type Expense = { id: number; buildingId: number | null; buildingName: string; date: string; category: string; amountFormatted: string; notes: string | null }
 type Summary = {
   rentCollectedFormatted: string
@@ -25,7 +26,7 @@ type Summary = {
   vacantCount: number
   occupancyRate: number
 }
-type Data = { buildings: Building[]; upcomingDeadlines: Deadline[]; expenses: Expense[]; summary: Summary }
+type Data = { buildings: Building[]; upcomingDeadlines: Deadline[]; unpaidRent: UnpaidRent[]; expenses: Expense[]; summary: Summary }
 
 const rentStatusLabel = { paid: 'Payé', late: 'En retard', unpaid: 'Non payé' }
 const rentStatusBadge = { paid: 'badge-green', late: 'badge-red', unpaid: 'badge-orange' }
@@ -134,6 +135,7 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
   const [tenantPhone, setTenantPhone] = useState('')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [months, setMonths] = useState('12')
+  const [depositAmount, setDepositAmount] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -149,7 +151,7 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
       const res = await fetch(`/api/logements/${unit.id}/bail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creatingTenant ? { tenantName, tenantPhone, startDate, months } : { tenantId, startDate, months }),
+        body: JSON.stringify(creatingTenant ? { tenantName, tenantPhone, startDate, months, depositAmount } : { tenantId, startDate, months, depositAmount }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -193,6 +195,7 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
         <div className="form-field"><label>Date d’entrée</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
         <div className="form-field"><label>Durée du bail (mois)</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
       </div>
+      <div className="form-field"><label>Caution / dépôt de garantie (optionnel)</label><input type="number" min="0" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="0" /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer le bail'}</button></div>
     </form>
   )
@@ -232,6 +235,49 @@ function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; 
       <p className="section-subtitle">Fin actuelle : <strong>{currentEndDate}</strong></p>
       <div className="form-field"><label>Mois supplémentaires</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Renouvellement...' : 'Renouveler le bail'}</button></div>
+    </form>
+  )
+}
+
+function EndLeaseForm({ lease, onDone }: { lease: ActiveLease; onDone: () => void }) {
+  const [depositReturnedAmount, setDepositReturnedAmount] = useState(String(lease.depositAmount))
+  const [depositNotes, setDepositNotes] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${lease.id}/terminer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ depositReturnedAmount, depositNotes }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Caution perçue : <strong>{lease.depositAmountFormatted}</strong></p>
+      <div className="form-field">
+        <label>Montant de la caution restitué</label>
+        <input required type="number" min="0" max={lease.depositAmount} value={depositReturnedAmount} onChange={(event) => setDepositReturnedAmount(event.target.value)} />
+      </div>
+      <div className="form-field"><label>Motif de retenue (optionnel)</label><input value={depositNotes} onChange={(event) => setDepositNotes(event.target.value)} placeholder="Ex : réparations, loyer impayé..." /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Clôture...' : 'Terminer le bail'}</button></div>
     </form>
   )
 }
@@ -298,6 +344,7 @@ export function ImmoView() {
   const [unitBuilding, setUnitBuilding] = useState<Building | null>(null)
   const [leaseUnit, setLeaseUnit] = useState<Unit | null>(null)
   const [renewingLease, setRenewingLease] = useState<{ id: number; endDate: string } | null>(null)
+  const [endingLease, setEndingLease] = useState<ActiveLease | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -313,9 +360,15 @@ export function ImmoView() {
 
   const period = currentPeriod()
 
-  async function endLease(leaseId: number) {
-    await fetch(`/api/baux/${leaseId}/terminer`, { method: 'POST' })
-    setRefreshKey((key) => key + 1)
+  async function endLease(lease: ActiveLease) {
+    // A lease with no deposit has nothing to settle — end it directly, no need to interrupt the
+    // admin with a modal asking about a caution that was never taken.
+    if (lease.depositAmount <= 0) {
+      await fetch(`/api/baux/${lease.id}/terminer`, { method: 'POST' })
+      setRefreshKey((key) => key + 1)
+      return
+    }
+    setEndingLease(lease)
   }
 
   async function setRentStatus(leaseId: number, status: 'paid' | 'late' | 'unpaid') {
@@ -365,6 +418,29 @@ export function ImmoView() {
         </section>
       )}
 
+      {(data?.unpaidRent ?? []).length > 0 && (
+        <section className="table-panel" style={{ marginBottom: 20, borderColor: 'var(--red)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', fontWeight: 700, color: 'var(--red)' }}>
+            <AlertTriangle size={15} /> Loyers impayés — {(data?.unpaidRent ?? [])[0]?.period}
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Logement</th><th>Locataire</th><th>Montant</th><th>Retard</th></tr></thead>
+              <tbody>
+                {(data?.unpaidRent ?? []).map((unpaid) => (
+                  <tr key={unpaid.leaseId}>
+                    <td data-label="Logement">{unpaid.buildingName} — {unpaid.unitLabel}</td>
+                    <td data-label="Locataire">{unpaid.tenantName}</td>
+                    <td data-label="Montant">{unpaid.amountFormatted}</td>
+                    <td data-label="Retard"><span className="badge badge-red">{unpaid.daysOverdue} j</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <div className="toolbar-panel">
         <p className="heading-subtitle">Période en cours : {period}</p>
         <button className="btn-primary" onClick={() => setBuildingModalOpen(true)}><Plus size={14} /> Nouvel immeuble</button>
@@ -379,7 +455,7 @@ export function ImmoView() {
           <div className="table-scroll">
             <table className="data-table">
               <thead>
-                <tr><th>Logement</th><th>Étage</th><th>Loyer</th><th>Statut</th><th>Locataire</th><th>Fin de bail</th><th>Loyer {period}</th><th></th></tr>
+                <tr><th>Logement</th><th>Étage</th><th>Loyer</th><th>Statut</th><th>Locataire</th><th>Fin de bail</th><th>Caution</th><th>Loyer {period}</th><th></th></tr>
               </thead>
               <tbody>
                 {building.units.map((unit) => (
@@ -390,6 +466,7 @@ export function ImmoView() {
                     <td data-label="Statut"><span className={`badge ${unit.status === 'occupied' ? 'badge-blue' : 'badge-green'}`}>{unit.status === 'occupied' ? 'Occupé' : 'Vacant'}</span></td>
                     <td data-label="Locataire">{unit.activeLease ? <Link href={`/immo/locataires/${unit.activeLease.tenantId}`}>{unit.activeLease.tenantName}</Link> : '—'}</td>
                     <td data-label="Fin de bail">{unit.activeLease?.endDate ?? '—'}</td>
+                    <td data-label="Caution">{unit.activeLease && unit.activeLease.depositAmount > 0 ? unit.activeLease.depositAmountFormatted : '—'}</td>
                     <td data-label={`Loyer ${period}`}>
                       {unit.activeLease ? (() => {
                         const payment = unit.activeLease.payments.find((p) => p.period === period)
@@ -410,7 +487,7 @@ export function ImmoView() {
                           <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'paid')}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Marquer payé</button>
                           <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'late')}>En retard</button>
                           <button className="btn-ghost" onClick={() => setRenewingLease({ id: unit.activeLease!.id, endDate: unit.activeLease!.endDate })}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>
-                          <button className="btn-ghost" onClick={() => endLease(unit.activeLease!.id)}>Terminer le bail</button>
+                          <button className="btn-ghost" onClick={() => endLease(unit.activeLease!)}>Terminer le bail</button>
                         </>
                       )}
                     </td>
@@ -462,6 +539,9 @@ export function ImmoView() {
       </Modal>
       <Modal open={renewingLease !== null} onClose={() => setRenewingLease(null)} title="Renouveler le bail" subtitle="">
         {renewingLease && <RenewLeaseForm leaseId={renewingLease.id} currentEndDate={renewingLease.endDate} onDone={() => { setRenewingLease(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={endingLease !== null} onClose={() => setEndingLease(null)} title="Terminer le bail" subtitle="Réglez la caution avant de libérer le logement.">
+        {endingLease && <EndLeaseForm lease={endingLease} onDone={() => { setEndingLease(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, réparations, taxes...">
         <NewBuildingExpenseForm buildings={data?.buildings ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />

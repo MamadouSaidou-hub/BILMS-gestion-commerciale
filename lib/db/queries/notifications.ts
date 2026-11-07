@@ -2,6 +2,8 @@ import { and, eq, or } from 'drizzle-orm'
 import { db } from '../client'
 import { products, stockLevels, stores, transfers } from '../schema'
 import { getDueDateAlerts } from './alerts'
+import { getLeaseDeadlineAlerts, getUnpaidRentAlerts } from './immo'
+import { getVehicleDueBackAlerts } from './location-voiture'
 
 export type NotificationItem = {
   id: string
@@ -60,6 +62,43 @@ export async function getNotifications(storeId: number | null, isAdminUser: bool
       subtitle: `${row.quantity} sac(s) restant(s) · ${row.storeName}`,
       href: '/stock',
     })
+  }
+
+  // Immo and Location voiture are admin-only sections (see middleware/route guards) — never surface
+  // their alerts to a non-admin store user, same gating as includeSuppliers above.
+  if (isAdminUser) {
+    const leaseDeadlines = await getLeaseDeadlineAlerts()
+    for (const deadline of leaseDeadlines) {
+      items.push({
+        id: `lease-${deadline.leaseId}`,
+        tone: deadline.daysRemaining <= 0 ? 'red' : 'orange',
+        title: `Bail arrivant à échéance — ${deadline.tenantName}`,
+        subtitle: `${deadline.buildingName} — ${deadline.unitLabel} · ${deadline.daysRemaining <= 0 ? 'échéance dépassée' : `dans ${deadline.daysRemaining} j`}`,
+        href: '/immo',
+      })
+    }
+
+    const unpaidRent = await getUnpaidRentAlerts()
+    for (const unpaid of unpaidRent) {
+      items.push({
+        id: `rent-${unpaid.leaseId}-${unpaid.period}`,
+        tone: 'red',
+        title: `Loyer impayé — ${unpaid.tenantName}`,
+        subtitle: `${unpaid.buildingName} — ${unpaid.unitLabel} · ${unpaid.amountFormatted} · ${unpaid.period}`,
+        href: '/immo',
+      })
+    }
+
+    const dueBackRentals = await getVehicleDueBackAlerts()
+    for (const rental of dueBackRentals) {
+      items.push({
+        id: `rental-${rental.rentalId}`,
+        tone: rental.daysRemaining <= 0 ? 'red' : 'orange',
+        title: `Véhicule à rendre — ${rental.vehicleName}`,
+        subtitle: `${rental.clientName} · ${rental.daysRemaining <= 0 ? 'retour dépassé' : `dans ${rental.daysRemaining} j`}`,
+        href: '/location-voiture',
+      })
+    }
   }
 
   const transferRows = await db

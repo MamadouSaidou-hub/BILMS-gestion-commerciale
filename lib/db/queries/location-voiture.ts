@@ -72,6 +72,24 @@ export async function getVehiclesOverview() {
   }
 }
 
+// Active rentals due back within a week — same threshold/shape as getVehiclesOverview's
+// upcomingDeadlines, but standalone (rentals + vehicles only) so the global notification bell can
+// pull this signal without paying for the full overview's expenses query.
+export async function getVehicleDueBackAlerts() {
+  const rentalRows = await db.select().from(vehicleRentals).where(eq(vehicleRentals.status, 'active'))
+  const vehicleRows = await db.select().from(vehicles)
+
+  return rentalRows
+    .map((rental) => ({
+      rentalId: rental.id,
+      vehicleName: vehicleRows.find((v) => v.id === rental.vehicleId)?.name ?? '—',
+      clientName: rental.clientName,
+      plannedEndDate: rental.plannedEndDate,
+      daysRemaining: daysUntil(rental.plannedEndDate),
+    }))
+    .filter((row) => row.daysRemaining <= 7)
+}
+
 export async function getVehicleOptions() {
   return db
     .select({ id: vehicles.id, name: vehicles.name, plate: vehicles.plate, status: vehicles.status })

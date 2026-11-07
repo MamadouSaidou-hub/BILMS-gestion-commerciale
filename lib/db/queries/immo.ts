@@ -45,6 +45,8 @@ export async function getBuildingsOverview() {
                 startDate: activeLease.startDate,
                 endDate: activeLease.endDate,
                 daysRemaining: daysUntil(activeLease.endDate),
+                depositAmount: activeLease.depositAmount,
+                depositAmountFormatted: formatFcfa(activeLease.depositAmount),
                 payments: paymentRows
                   .filter((payment) => payment.leaseId === activeLease.id)
                   .map((payment) => ({ id: payment.id, period: payment.period, status: payment.status, amountFormatted: formatFcfa(payment.amount) })),
@@ -61,6 +63,7 @@ export async function getBuildingsOverview() {
   return {
     buildings: buildingsResult,
     upcomingDeadlines,
+    unpaidRent: await getUnpaidRentAlerts(),
     expenses: expenseRows.map((row) => ({
       id: row.id,
       buildingId: row.buildingId,
@@ -83,6 +86,64 @@ export async function getBuildingsOverview() {
       occupancyRate: unitRows.length > 0 ? Math.round((occupiedCount / unitRows.length) * 100) : 0,
     },
   }
+}
+
+// Leases ending within a week — same threshold/shape as getBuildingsOverview's upcomingDeadlines,
+// but standalone (leases + units + buildings only) so the global notification bell can pull this
+// signal without paying for the full overview's payments/expenses queries.
+export async function getLeaseDeadlineAlerts() {
+  const leaseRows = await db.select().from(leases).where(eq(leases.status, 'active'))
+  const unitRows = await db.select().from(units)
+  const buildingRows = await db.select().from(buildings)
+
+  return leaseRows
+    .map((lease) => {
+      const unit = unitRows.find((u) => u.id === lease.unitId)
+      const building = unit ? buildingRows.find((b) => b.id === unit.buildingId) : undefined
+      return {
+        leaseId: lease.id,
+        unitLabel: unit?.label ?? '—',
+        buildingName: building?.name ?? '—',
+        tenantName: lease.tenantName,
+        endDate: lease.endDate,
+        daysRemaining: daysUntil(lease.endDate),
+      }
+    })
+    .filter((row) => row.daysRemaining <= 7)
+}
+
+// A grace period before an unpaid current-month rent counts as an alert — gives tenants the first
+// days of the month to pay before the admin is bothered about it. rent_payments rows are only
+// created when someone explicitly records a status, so a lease with no row at all for the current
+// period is treated the same as an explicit 'unpaid' row (the UI already defaults missing rows the
+// same way when showing the month's status per unit).
+const RENT_GRACE_DAY = 5
+
+export async function getUnpaidRentAlerts() {
+  const today = new Date()
+  if (today.getDate() <= RENT_GRACE_DAY) return []
+  const period = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+
+  const leaseRows = await db.select().from(leases).where(eq(leases.status, 'active'))
+  const paymentRows = await db.select().from(rentPayments).where(eq(rentPayments.period, period))
+  const unitRows = await db.select().from(units)
+  const buildingRows = await db.select().from(buildings)
+
+  return leaseRows
+    .filter((lease) => paymentRows.find((p) => p.leaseId === lease.id)?.status !== 'paid')
+    .map((lease) => {
+      const unit = unitRows.find((u) => u.id === lease.unitId)
+      const building = unit ? buildingRows.find((b) => b.id === unit.buildingId) : undefined
+      return {
+        leaseId: lease.id,
+        unitLabel: unit?.label ?? '—',
+        buildingName: building?.name ?? '—',
+        tenantName: lease.tenantName,
+        period,
+        amountFormatted: formatFcfa(lease.monthlyRent),
+        daysOverdue: today.getDate() - RENT_GRACE_DAY,
+      }
+    })
 }
 
 export async function getBuildingOptions() {
@@ -133,6 +194,11 @@ export async function getTenantDetail(tenantId: number) {
       endDate: lease.endDate,
       status: lease.status,
       monthlyRentFormatted: formatFcfa(lease.monthlyRent),
+      depositAmount: lease.depositAmount,
+      depositAmountFormatted: formatFcfa(lease.depositAmount),
+      depositStatus: lease.depositStatus,
+      depositReturnedAmountFormatted: lease.depositReturnedAmount !== null ? formatFcfa(lease.depositReturnedAmount) : null,
+      depositNotes: lease.depositNotes,
       payments: leasePayments.map((payment) => ({ id: payment.id, period: payment.period, status: payment.status, amountFormatted: formatFcfa(payment.amount) })),
     }
   })

@@ -459,6 +459,7 @@ export const tenants = pgTable('tenants', {
 })
 
 export const leaseStatus = ['active', 'ended'] as const
+export const leaseDepositStatus = ['held', 'returned', 'withheld'] as const
 export const leases = pgTable('leases', {
   id: serial('id').primaryKey(),
   unitId: integer('unit_id')
@@ -479,6 +480,13 @@ export const leases = pgTable('leases', {
   // when endLease() is called explicitly, reaching this date doesn't end it automatically.
   endDate: text('end_date').notNull(),
   status: text('status', { enum: leaseStatus }).notNull().default('active'),
+  // Caution/dépôt de garantie collected at signing — 0 when none was taken. Settled (fully or
+  // partially returned, or withheld) only when endLease() records a decision; stays 'held' for
+  // the whole life of an active lease.
+  depositAmount: doublePrecision('deposit_amount').notNull().default(0),
+  depositStatus: text('deposit_status', { enum: leaseDepositStatus }).notNull().default('held'),
+  depositReturnedAmount: doublePrecision('deposit_returned_amount'),
+  depositNotes: text('deposit_notes'),
   ...timestamps,
 })
 

@@ -44,9 +44,13 @@ export async function createLease(input: {
   tenantPhone?: string | null
   startDate: string
   months: number
+  depositAmount?: number
 }) {
   if (input.months <= 0) {
     throw new Error('La durée du bail doit être supérieure à zéro.')
+  }
+  if (input.depositAmount !== undefined && input.depositAmount < 0) {
+    throw new Error('La caution ne peut pas être négative.')
   }
 
   return db.transaction(async (tx) => {
@@ -86,6 +90,7 @@ export async function createLease(input: {
         startDate: input.startDate,
         endDate: addMonths(input.startDate, input.months),
         monthlyRent: unit.monthlyRent,
+        depositAmount: input.depositAmount ?? 0,
       })
       .returning()
 
@@ -116,7 +121,7 @@ export async function renewLease(leaseId: number, additionalMonths: number) {
   return updated
 }
 
-export async function endLease(leaseId: number) {
+export async function endLease(leaseId: number, settlement?: { depositReturnedAmount?: number; depositNotes?: string | null }) {
   return db.transaction(async (tx) => {
     const [lease] = await tx.select().from(leases).where(eq(leases.id, leaseId))
     if (!lease) {
@@ -126,7 +131,22 @@ export async function endLease(leaseId: number) {
       throw new Error('Ce bail est déjà terminé.')
     }
 
-    const [updated] = await tx.update(leases).set({ status: 'ended' }).where(eq(leases.id, leaseId)).returning()
+    // Only a lease that actually took a deposit needs a settlement decision — nothing to record
+    // (and the column stays at its 'held' default, which is meaningless here) for the common case
+    // of a lease signed with no caution.
+    const depositUpdate: Partial<typeof leases.$inferInsert> = {}
+    if (lease.depositAmount > 0) {
+      const returned = Math.min(Math.max(settlement?.depositReturnedAmount ?? 0, 0), lease.depositAmount)
+      depositUpdate.depositReturnedAmount = returned
+      depositUpdate.depositStatus = returned >= lease.depositAmount ? 'returned' : 'withheld'
+      depositUpdate.depositNotes = settlement?.depositNotes ?? null
+    }
+
+    const [updated] = await tx
+      .update(leases)
+      .set({ status: 'ended', ...depositUpdate })
+      .where(eq(leases.id, leaseId))
+      .returning()
     await tx.update(units).set({ status: 'vacant' }).where(eq(units.id, lease.unitId))
 
     return updated

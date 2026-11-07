@@ -16,9 +16,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const tenantName = body.tenantName ? String(body.tenantName).trim() : undefined
   const startDate = String(body.startDate ?? '').trim()
   const months = Number(body.months)
+  const depositAmount = body.depositAmount !== undefined && body.depositAmount !== '' ? Number(body.depositAmount) : undefined
 
   if (!Number.isFinite(unitId) || (!tenantId && !tenantName) || !startDate || !Number.isFinite(months) || months <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
+  }
+  if (depositAmount !== undefined && (!Number.isFinite(depositAmount) || depositAmount < 0)) {
+    return NextResponse.json({ error: 'Caution invalide.' }, { status: 400 })
   }
 
   try {
@@ -29,6 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       tenantPhone: body.tenantPhone ? String(body.tenantPhone).trim() : undefined,
       startDate,
       months,
+      depositAmount,
     })
     return NextResponse.json({ lease }, { status: 201 })
   } catch (error) {

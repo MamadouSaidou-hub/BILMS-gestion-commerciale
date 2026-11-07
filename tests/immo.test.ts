@@ -176,3 +176,56 @@ describe('endLease', () => {
     expect(updated.status).toBe('vacant')
   })
 })
+
+describe('createLease with a deposit', () => {
+  it('snapshots the deposit amount on the lease, defaulting to 0 when not given', async () => {
+    const unitWithDeposit = await makeUnit('K1')
+    const leaseWithDeposit = await createLease({ unitId: unitWithDeposit.id, tenantName: 'Locataire Caution', startDate: '2026-11-01', months: 12, depositAmount: 150000 })
+    leaseIds.push(leaseWithDeposit.id)
+    expect(leaseWithDeposit.depositAmount).toBe(150000)
+    expect(leaseWithDeposit.depositStatus).toBe('held')
+
+    const unitNoDeposit = await makeUnit('K2')
+    const leaseNoDeposit = await createLease({ unitId: unitNoDeposit.id, tenantName: 'Locataire Sans Caution', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(leaseNoDeposit.id)
+    expect(leaseNoDeposit.depositAmount).toBe(0)
+  })
+
+  it('rejects a negative deposit', async () => {
+    const unit = await makeUnit('K3')
+    await expect(createLease({ unitId: unit.id, tenantName: 'Locataire Test', startDate: '2026-11-01', months: 12, depositAmount: -1 })).rejects.toThrow(/caution/i)
+  })
+})
+
+describe('endLease deposit settlement', () => {
+  it('marks the deposit returned when the full amount is given back', async () => {
+    const unit = await makeUnit('L1')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Caution Rendue', startDate: '2026-11-01', months: 12, depositAmount: 100000 })
+    leaseIds.push(lease.id)
+
+    const ended = await endLease(lease.id, { depositReturnedAmount: 100000 })
+    expect(ended.depositStatus).toBe('returned')
+    expect(ended.depositReturnedAmount).toBe(100000)
+  })
+
+  it('marks the deposit withheld when only part (or none) is given back, and records the reason', async () => {
+    const unit = await makeUnit('L2')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Caution Retenue', startDate: '2026-11-01', months: 12, depositAmount: 100000 })
+    leaseIds.push(lease.id)
+
+    const ended = await endLease(lease.id, { depositReturnedAmount: 40000, depositNotes: 'Réparations peinture' })
+    expect(ended.depositStatus).toBe('withheld')
+    expect(ended.depositReturnedAmount).toBe(40000)
+    expect(ended.depositNotes).toBe('Réparations peinture')
+  })
+
+  it('leaves the deposit untouched when the lease never took one', async () => {
+    const unit = await makeUnit('L3')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Sans Caution Fin', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const ended = await endLease(lease.id)
+    expect(ended.depositStatus).toBe('held')
+    expect(ended.depositReturnedAmount).toBeNull()
+  })
+})

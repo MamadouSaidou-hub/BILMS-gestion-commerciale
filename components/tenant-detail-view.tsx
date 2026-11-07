@@ -11,6 +11,8 @@ const leaseStatusLabel = { active: 'Actif', ended: 'Terminé' }
 const leaseStatusBadge = { active: 'badge-green', ended: 'badge-muted' }
 const paymentStatusLabel = { paid: 'Payé', late: 'En retard', unpaid: 'Non payé' }
 const paymentStatusBadge = { paid: 'badge-green', late: 'badge-orange', unpaid: 'badge-muted' }
+const depositStatusLabel = { held: 'Détenue', returned: 'Restituée', withheld: 'Retenue' }
+const depositStatusBadge = { held: 'badge-blue', returned: 'badge-green', withheld: 'badge-orange' }
 
 type TenantDetail = {
   id: number
@@ -24,6 +26,11 @@ type TenantDetail = {
     endDate: string
     status: 'active' | 'ended'
     monthlyRentFormatted: string
+    depositAmount: number
+    depositAmountFormatted: string
+    depositStatus: 'held' | 'returned' | 'withheld'
+    depositReturnedAmountFormatted: string | null
+    depositNotes: string | null
     payments: { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }[]
   }[]
 }
@@ -67,6 +74,7 @@ export function TenantDetailView({ tenantId }: { tenantId: number }) {
                     <th>Début</th>
                     <th>Fin</th>
                     <th>Loyer</th>
+                    <th>Caution</th>
                     <th>Statut</th>
                   </tr>
                 </thead>
@@ -78,6 +86,14 @@ export function TenantDetailView({ tenantId }: { tenantId: number }) {
                       <td data-label="Début">{new Date(lease.startDate).toLocaleDateString('fr-FR')}</td>
                       <td data-label="Fin">{new Date(lease.endDate).toLocaleDateString('fr-FR')}</td>
                       <td data-label="Loyer">{lease.monthlyRentFormatted}</td>
+                      <td data-label="Caution">
+                        {lease.depositAmount > 0 ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {lease.depositAmountFormatted}
+                            <span className={`badge ${depositStatusBadge[lease.depositStatus]}`}>{depositStatusLabel[lease.depositStatus]}</span>
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td data-label="Statut"><span className={`badge ${leaseStatusBadge[lease.status]}`}>{leaseStatusLabel[lease.status]}</span></td>
                     </tr>
                   ))}
