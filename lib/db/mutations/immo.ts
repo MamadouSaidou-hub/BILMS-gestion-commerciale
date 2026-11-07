@@ -35,6 +35,20 @@ export async function createUnit(input: { buildingId: number; label: string; flo
   return unit
 }
 
+// Only the unit's own "sticker price" for the *next* lease signed on it — an active lease already
+// snapshotted its own rent at signing (see createLease) and is deliberately untouched here, same
+// as any other rent change on the unit after a lease started.
+export async function updateUnitRent(unitId: number, monthlyRent: number) {
+  if (monthlyRent <= 0) {
+    throw new Error('Le loyer doit être supérieur à zéro.')
+  }
+  const [updated] = await db.update(units).set({ monthlyRent }).where(eq(units.id, unitId)).returning()
+  if (!updated) {
+    throw new Error('Logement introuvable.')
+  }
+  return updated
+}
+
 export async function createLease(input: {
   unitId: number
   // Either an existing tenant (tenantId) or a brand-new one entered inline (tenantName, +
@@ -98,6 +112,28 @@ export async function createLease(input: {
 
     return lease
   })
+}
+
+// A deliberate mid-lease rent revision (annual increase, negotiated reduction...) — distinct from
+// the automatic snapshot at signing. Only ever affects rent_payments rows created *after* this
+// call: recordRentPayment reads lease.monthlyRent fresh for a brand-new period row, while periods
+// already recorded keep the amount they were created with. No separate history table — the
+// quittance/rent-history list already shows each period's actual amount, which is the record that
+// matters; what the rate used to be before a given change isn't tracked beyond that.
+export async function updateLeaseRent(leaseId: number, monthlyRent: number) {
+  if (monthlyRent <= 0) {
+    throw new Error('Le loyer doit être supérieur à zéro.')
+  }
+  const [lease] = await db.select().from(leases).where(eq(leases.id, leaseId))
+  if (!lease) {
+    throw new Error('Bail introuvable.')
+  }
+  if (lease.status !== 'active') {
+    throw new Error('Seul un bail actif peut être modifié.')
+  }
+
+  const [updated] = await db.update(leases).set({ monthlyRent }).where(eq(leases.id, leaseId)).returning()
+  return updated
 }
 
 export async function renewLease(leaseId: number, additionalMonths: number) {

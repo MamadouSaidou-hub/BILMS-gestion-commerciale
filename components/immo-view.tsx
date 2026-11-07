@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, Banknote, Building2, CheckCircle2, FileText, Home, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, Banknote, Building2, CheckCircle2, FileText, Home, Pencil, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 
 type Payment = { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
-type ActiveLease = { id: number; tenantId: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; depositAmount: number; depositAmountFormatted: string; payments: Payment[] }
+type ActiveLease = { id: number; tenantId: number; tenantName: string; tenantPhone: string | null; startDate: string; endDate: string; daysRemaining: number; monthlyRent: number; monthlyRentFormatted: string; depositAmount: number; depositAmountFormatted: string; payments: Payment[] }
 type TenantOption = { id: number; name: string; phone: string }
-type Unit = { id: number; label: string; floor: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
+type Unit = { id: number; label: string; floor: number; monthlyRent: number; monthlyRentFormatted: string; status: 'vacant' | 'occupied'; activeLease: ActiveLease | null }
 type Building = { id: number; name: string; address: string; units: Unit[] }
 type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
 type UnpaidRent = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; period: string; amountFormatted: string; daysOverdue: number }
@@ -282,6 +282,88 @@ function EndLeaseForm({ lease, onDone }: { lease: ActiveLease; onDone: () => voi
   )
 }
 
+function EditLeaseRentForm({ lease, onDone }: { lease: ActiveLease; onDone: () => void }) {
+  const [monthlyRent, setMonthlyRent] = useState(String(lease.monthlyRent))
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${lease.id}/loyer-montant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthlyRent }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Loyer actuel : <strong>{lease.monthlyRentFormatted}</strong></p>
+      <div className="form-field"><label>Nouveau loyer mensuel</label><input required type="number" min="1" value={monthlyRent} onChange={(event) => setMonthlyRent(event.target.value)} /></div>
+      <p className="section-subtitle" style={{ fontSize: 11 }}>S’applique aux prochains loyers enregistrés pour ce bail — les périodes déjà enregistrées gardent leur montant d’origine.</p>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Mise à jour...' : 'Mettre à jour le loyer'}</button></div>
+    </form>
+  )
+}
+
+function EditUnitRentForm({ unit, onDone }: { unit: Unit; onDone: () => void }) {
+  const [monthlyRent, setMonthlyRent] = useState(String(unit.monthlyRent))
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/logements/${unit.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthlyRent }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Loyer actuel : <strong>{unit.monthlyRentFormatted}</strong></p>
+      <div className="form-field"><label>Nouveau loyer de base</label><input required type="number" min="1" value={monthlyRent} onChange={(event) => setMonthlyRent(event.target.value)} /></div>
+      {unit.activeLease && (
+        <p className="section-subtitle" style={{ fontSize: 11 }}>
+          Ce logement est occupé — ce loyer de base ne s’appliquera qu’au prochain bail. Pour changer ce que paie le locataire actuel, utilisez « Modifier le loyer » sur son bail.
+        </p>
+      )}
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Mise à jour...' : 'Mettre à jour le loyer'}</button></div>
+    </form>
+  )
+}
+
 function NewBuildingExpenseForm({ buildings, onCreated }: { buildings: Building[]; onCreated: () => void }) {
   const [buildingId, setBuildingId] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -345,6 +427,8 @@ export function ImmoView() {
   const [leaseUnit, setLeaseUnit] = useState<Unit | null>(null)
   const [renewingLease, setRenewingLease] = useState<{ id: number; endDate: string } | null>(null)
   const [endingLease, setEndingLease] = useState<ActiveLease | null>(null)
+  const [editingLeaseRent, setEditingLeaseRent] = useState<ActiveLease | null>(null)
+  const [editingUnitRent, setEditingUnitRent] = useState<Unit | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -462,7 +546,20 @@ export function ImmoView() {
                   <tr key={unit.id}>
                     <td data-label="Logement"><span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Home size={13} color="var(--faint)" />{unit.label}</span></td>
                     <td data-label="Étage">{unit.floor}</td>
-                    <td data-label="Loyer">{unit.monthlyRentFormatted}</td>
+                    <td data-label="Loyer">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {unit.activeLease ? unit.activeLease.monthlyRentFormatted : unit.monthlyRentFormatted}
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ padding: 2 }}
+                          title={unit.activeLease ? 'Modifier le loyer de ce bail' : 'Modifier le loyer de base'}
+                          onClick={() => (unit.activeLease ? setEditingLeaseRent(unit.activeLease) : setEditingUnitRent(unit))}
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </span>
+                    </td>
                     <td data-label="Statut"><span className={`badge ${unit.status === 'occupied' ? 'badge-blue' : 'badge-green'}`}>{unit.status === 'occupied' ? 'Occupé' : 'Vacant'}</span></td>
                     <td data-label="Locataire">{unit.activeLease ? <Link href={`/immo/locataires/${unit.activeLease.tenantId}`}>{unit.activeLease.tenantName}</Link> : '—'}</td>
                     <td data-label="Fin de bail">{unit.activeLease?.endDate ?? '—'}</td>
@@ -542,6 +639,12 @@ export function ImmoView() {
       </Modal>
       <Modal open={endingLease !== null} onClose={() => setEndingLease(null)} title="Terminer le bail" subtitle="Réglez la caution avant de libérer le logement.">
         {endingLease && <EndLeaseForm lease={endingLease} onDone={() => { setEndingLease(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={editingLeaseRent !== null} onClose={() => setEditingLeaseRent(null)} title="Modifier le loyer" subtitle={editingLeaseRent?.tenantName ?? ''}>
+        {editingLeaseRent && <EditLeaseRentForm lease={editingLeaseRent} onDone={() => { setEditingLeaseRent(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={editingUnitRent !== null} onClose={() => setEditingUnitRent(null)} title="Modifier le loyer de base" subtitle={editingUnitRent?.label ?? ''}>
+        {editingUnitRent && <EditUnitRentForm unit={editingUnitRent} onDone={() => { setEditingUnitRent(null); setRefreshKey((key) => key + 1) }} />}
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, réparations, taxes...">
         <NewBuildingExpenseForm buildings={data?.buildings ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />

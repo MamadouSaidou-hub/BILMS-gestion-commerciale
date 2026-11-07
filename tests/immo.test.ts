@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
 import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
-import { createBuilding, createLease, createTenant, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease } from '@/lib/db/mutations/immo'
+import { createBuilding, createLease, createTenant, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease, updateLeaseRent, updateUnitRent } from '@/lib/db/mutations/immo'
 import { getTenantDetail } from '@/lib/db/queries/immo'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -194,6 +194,63 @@ describe('createLease with a deposit', () => {
   it('rejects a negative deposit', async () => {
     const unit = await makeUnit('K3')
     await expect(createLease({ unitId: unit.id, tenantName: 'Locataire Test', startDate: '2026-11-01', months: 12, depositAmount: -1 })).rejects.toThrow(/caution/i)
+  })
+})
+
+describe('updateUnitRent', () => {
+  it('updates the unit base rent without touching an active lease on it', async () => {
+    const unit = await makeUnit('M1', 500000)
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Loyer Base', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const updatedUnit = await updateUnitRent(unit.id, 600000)
+    expect(updatedUnit.monthlyRent).toBe(600000)
+
+    const [unchangedLease] = await db.select().from(leases).where(eq(leases.id, lease.id))
+    expect(unchangedLease.monthlyRent).toBe(500000)
+  })
+
+  it('rejects a non-positive rent', async () => {
+    const unit = await makeUnit('M2')
+    await expect(updateUnitRent(unit.id, 0)).rejects.toThrow(/supérieur à zéro/i)
+  })
+})
+
+describe('updateLeaseRent', () => {
+  it('changes what a future recordRentPayment call snapshots, without touching an already-recorded period', async () => {
+    const unit = await makeUnit('N1', 500000)
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Révision Loyer', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const novemberPayment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid' })
+    expect(novemberPayment.amount).toBe(500000)
+
+    const updated = await updateLeaseRent(lease.id, 550000)
+    expect(updated.monthlyRent).toBe(550000)
+
+    // The already-recorded November period keeps its original amount...
+    const [novemberRow] = await db.select().from(rentPayments).where(eq(rentPayments.id, novemberPayment.id))
+    expect(novemberRow.amount).toBe(500000)
+
+    // ...while a brand-new period picks up the new rate.
+    const decemberPayment = await recordRentPayment({ leaseId: lease.id, period: '2026-12', status: 'unpaid' })
+    expect(decemberPayment.amount).toBe(550000)
+  })
+
+  it('rejects a non-positive rent', async () => {
+    const unit = await makeUnit('N2')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Test', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    await expect(updateLeaseRent(lease.id, -100)).rejects.toThrow(/supérieur à zéro/i)
+  })
+
+  it('rejects changing the rent of an already-ended lease', async () => {
+    const unit = await makeUnit('N3')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Fin Loyer', startDate: '2026-11-01', months: 1 })
+    leaseIds.push(lease.id)
+    await endLease(lease.id)
+
+    await expect(updateLeaseRent(lease.id, 600000)).rejects.toThrow(/actif/i)
   })
 })
 

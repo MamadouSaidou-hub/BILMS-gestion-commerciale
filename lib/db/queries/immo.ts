@@ -45,6 +45,8 @@ export async function getBuildingsOverview() {
                 startDate: activeLease.startDate,
                 endDate: activeLease.endDate,
                 daysRemaining: daysUntil(activeLease.endDate),
+                monthlyRent: activeLease.monthlyRent,
+                monthlyRentFormatted: formatFcfa(activeLease.monthlyRent),
                 depositAmount: activeLease.depositAmount,
                 depositAmountFormatted: formatFcfa(activeLease.depositAmount),
                 payments: paymentRows
