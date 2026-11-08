@@ -2,7 +2,7 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, products, receivables, sales, stockLevels, stockMovements, stores, transfers } from '../schema'
 import { formatFcfa, formatTrend, pctChange } from '@/lib/format'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, periodTrendBuckets, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
 
 type Activity = { title: string; subtitle: string; amount: string; tone: 'green' | 'blue' | 'orange' | 'purple'; icon: 'sale' | 'stock' | 'payment' | 'transfer'; createdAt: string }
@@ -18,20 +18,16 @@ function relativeTime(iso: string) {
 }
 
 export async function getDashboardData(period: PeriodKey, storeName: string | null) {
-  const { start, previousStart } = periodRange(period)
+  const { start, previousStart, end } = periodRange(period)
   const storeId = await resolveStoreId(storeName)
   const storeFilter = storeId ? eq(sales.storeId, storeId) : undefined
   const stockFilter = storeId ? eq(stockLevels.storeId, storeId) : undefined
 
-  const dayLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam']
-  const dayRanges = Array.from({ length: 7 }, (_, index) => {
-    const dayStart = new Date()
-    dayStart.setHours(0, 0, 0, 0)
-    dayStart.setDate(dayStart.getDate() - (6 - index))
-    const dayEnd = new Date(dayStart)
-    dayEnd.setDate(dayEnd.getDate() + 1)
-    return { dayStart, dayEnd }
-  })
+  // The "Évolution des ventes" chart now follows the selected period exactly (hour buckets for
+  // "today", daily for "7 derniers jours"/"ce mois-ci", monthly for "cette année") — its total is
+  // therefore always exactly `revenue` below, and its trend is always exactly the same comparison
+  // against `previousStart`, so no separate query/number is needed for either.
+  const trendBuckets = periodTrendBuckets(period, start, end)
 
   // All of the following are independent reads — running them concurrently instead of one `await` at a
   // time turns N sequential network round-trips to Supabase into 1 (the slowest of them), which matters
@@ -71,12 +67,12 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
       .innerJoin(sales, eq(receivables.saleId, sales.id))
       .where(storeId ? and(eq(sales.storeId, storeId), eq(receivables.status, 'overdue')) : eq(receivables.status, 'overdue')),
     Promise.all(
-      dayRanges.map(({ dayStart, dayEnd }) =>
+      trendBuckets.map(({ bucketStart, bucketEnd, label }) =>
         db
           .select({ total: sales.totalAmount })
           .from(sales)
-          .where(and(gte(sales.createdAt, dayStart.toISOString()), lt(sales.createdAt, dayEnd.toISOString()), storeFilter))
-          .then((rows) => ({ day: dayLabels[dayStart.getDay()], value: rows.reduce((sum, row) => sum + row.total, 0) })),
+          .where(and(gte(sales.createdAt, bucketStart.toISOString()), lt(sales.createdAt, bucketEnd.toISOString()), storeFilter))
+          .then((rows) => ({ day: label, value: rows.reduce((sum, row) => sum + row.total, 0) })),
       ),
     ),
     db
@@ -245,6 +241,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
       receivables: { value: formatFcfa(totalReceivables), helper: `${distinctClients} clients en retard`, trend: '' },
     },
     salesTrend,
+    salesTrendChange: formatTrend(pctChange(revenue, previousRevenue)),
     storePerformance,
     activity: activity.slice(0, 4),
     alerts: alerts.slice(0, 3),
