@@ -5,6 +5,7 @@ import { Download, Mail, MessageCircle, Printer } from 'lucide-react'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
 import { amountInWords } from '@/lib/number-to-words'
+import { drawInvoiceHeader, drawSignatureAndCachet, INVOICE_NAVY } from '@/lib/pdf-invoice'
 
 type PaymentDetail = {
   reference: string
@@ -18,63 +19,20 @@ type PaymentDetail = {
   buildingAddress: string
 }
 
-async function loadImageAsDataUrl(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const blob = await res.blob()
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-  } catch {
-    return null
-  }
-}
-
 async function buildReceiptPdf(payment: PaymentDetail) {
   const { jsPDF } = await import('jspdf')
   const autoTableModule = await import('jspdf-autotable')
   const autoTable = autoTableModule.default
 
-  const NAVY: [number, number, number] = [26, 60, 114]
-  const GOLD: [number, number, number] = [201, 149, 47]
   const doc = new jsPDF()
-  const pageWidth = doc.internal.pageSize.getWidth()
 
-  const logoDataUrl = await loadImageAsDataUrl(companyInfo.logoPath)
-  if (logoDataUrl) {
-    try {
-      const format = logoDataUrl.includes('image/png') ? 'PNG' : 'JPEG'
-      doc.addImage(logoDataUrl, format, 14, 14, 20, 20)
-    } catch {
-      // Unreadable/unsupported image — skip the logo rather than fail the whole export.
-    }
-  }
-
-  const textX = logoDataUrl ? 38 : 14
-  doc.setFontSize(13)
-  doc.setTextColor(...NAVY)
-  doc.text(companyInfo.name, textX, 20)
-  doc.setFontSize(8.5)
-  doc.setTextColor(...GOLD)
-  doc.text(companyInfo.tagline.toUpperCase(), textX, 25)
-  doc.setFontSize(8.5)
-  doc.setTextColor(120, 130, 145)
-  doc.text(`${companyInfo.address}  ·  ${companyInfo.phone}  ·  ${companyInfo.email}`, textX, 30)
-
-  doc.setFontSize(16)
-  doc.setTextColor(...NAVY)
-  doc.text('QUITTANCE DE LOYER', pageWidth - 14, 20, { align: 'right' })
-  doc.setFontSize(9)
-  doc.setTextColor(120, 130, 145)
-  doc.text(`N° ${payment.reference}`, pageWidth - 14, 26, { align: 'right' })
-  doc.text(`Période : ${payment.period}`, pageWidth - 14, 31, { align: 'right' })
+  const { pageWidth, headerBottomY } = await drawInvoiceHeader(doc, {
+    title: 'QUITTANCE DE LOYER',
+    metaLines: [`N° ${payment.reference}`, `Période : ${payment.period}`],
+  })
 
   autoTable(doc, {
-    startY: 44,
+    startY: Math.max(44, headerBottomY + 8),
     body: [
       [`Logement\n${payment.buildingName} — ${payment.unitLabel}\n${payment.buildingAddress}`, `Locataire\n${payment.tenantName}${payment.tenantPhone ? `\n${payment.tenantPhone}` : ''}`],
     ],
@@ -91,14 +49,14 @@ async function buildReceiptPdf(payment: PaymentDetail) {
     head: [['Description', 'Montant']],
     body: [[`Loyer — ${payment.unitLabel} — ${payment.period}`, payment.amountFormatted]],
     theme: 'striped',
-    headStyles: { fillColor: NAVY },
+    headStyles: { fillColor: INVOICE_NAVY },
     styles: { fontSize: 9 },
     margin: { left: 14, right: 14 },
   })
 
   const afterItems = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
 
-  doc.setFillColor(...NAVY)
+  doc.setFillColor(...INVOICE_NAVY)
   doc.rect(pageWidth - 90, afterItems, 76, 10, 'F')
   doc.setFontSize(10)
   doc.setTextColor(255, 255, 255)
@@ -113,23 +71,7 @@ async function buildReceiptPdf(payment: PaymentDetail) {
   doc.text(`${amountInWords(payment.amount)} ${businessConfig.currency}`, 14, afterTotal + 9)
   doc.setFont('helvetica', 'normal')
 
-  // Signature + cachet — same combined image used on the printable HTML version, scaled to its
-  // real aspect ratio (834x480) so it doesn't look stretched on the PDF.
-  const signatureDataUrl = await loadImageAsDataUrl('/signature-cachet-bilms.png')
-  const signatureWidth = 45
-  const signatureHeight = signatureWidth * (480 / 834)
-  const signatureY = Math.max(afterTotal + 16, 230)
-  if (signatureDataUrl) {
-    try {
-      doc.setFontSize(8)
-      doc.setTextColor(120, 130, 145)
-      doc.text('SIGNATURE ET CACHET', pageWidth - 14 - signatureWidth / 2, signatureY, { align: 'center' })
-      doc.addImage(signatureDataUrl, 'PNG', pageWidth - 14 - signatureWidth, signatureY + 2, signatureWidth, signatureHeight)
-      doc.text('Le Gérant', pageWidth - 14 - signatureWidth / 2, signatureY + signatureHeight + 8, { align: 'center' })
-    } catch {
-      // Unreadable/unsupported image — skip the signature rather than fail the whole export.
-    }
-  }
+  await drawSignatureAndCachet(doc, { pageWidth, afterY: afterTotal })
 
   doc.setFontSize(8.5)
   doc.setTextColor(120, 130, 145)
