@@ -5,7 +5,7 @@ import { Download, Mail, MessageCircle, Printer } from 'lucide-react'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
 import { amountInWords } from '@/lib/number-to-words'
-import { drawInvoiceHeader, drawSignatureAndCachet, INVOICE_NAVY } from '@/lib/pdf-invoice'
+import { drawInvoiceFooter, drawInvoiceHeader, drawSignatureAndCachet, INVOICE_NAVY } from '@/lib/pdf-invoice'
 
 type PaymentDetail = {
   reference: string
@@ -73,9 +73,7 @@ async function buildReceiptPdf(payment: PaymentDetail) {
 
   await drawSignatureAndCachet(doc, { pageWidth, afterY: afterTotal })
 
-  doc.setFontSize(8.5)
-  doc.setTextColor(120, 130, 145)
-  doc.text(`Reçu pour valoir ce que de droit — ${companyInfo.name}`, pageWidth / 2, 285, { align: 'center' })
+  drawInvoiceFooter(doc, pageWidth, `Reçu pour valoir ce que de droit — ${companyInfo.name}`)
 
   return doc
 }

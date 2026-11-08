@@ -102,7 +102,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
         <div className="invoice-footer" style={{ borderTop: `1px solid ${BORDER}` }}>
           <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>Reçu pour valoir ce que de droit — {companyInfo.name}</p>
-          <p style={{ fontSize: 9.5, color: '#b3bdcb', margin: '4px 0 0' }}>{companyInfo.address} · {companyInfo.phone} · {companyInfo.email}</p>
+          <p style={{ fontSize: 9, color: '#b3bdcb', margin: '6px 0 0' }}>Siège social : {companyInfo.headOffice}</p>
+          <p style={{ fontSize: 9, color: '#b3bdcb', margin: '2px 0 0' }}>E-mail : {companyInfo.email} · Tél : {companyInfo.phone} / {companyInfo.phone2}</p>
+          <p style={{ fontSize: 9, color: '#b3bdcb', margin: '2px 0 0' }}>RCCM {companyInfo.rccm} · Code NIF : {companyInfo.nif} · Numéro de compte : {companyInfo.accountNumber}</p>
         </div>
       </div>
 

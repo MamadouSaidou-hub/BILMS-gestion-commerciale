@@ -102,3 +102,18 @@ export async function drawSignatureAndCachet(doc: jsPDF, opts: { pageWidth: numb
     // Unreadable/unsupported image — skip the signature rather than fail the whole export.
   }
 }
+
+/**
+ * Legal/registration footer, same info as the old paper invoices' footer (siège social, RCCM,
+ * NIF, numéro de compte) — carried over so the generated documents are legally equivalent, not
+ * just visually similar. Always pinned near the bottom of the page regardless of content length.
+ */
+export function drawInvoiceFooter(doc: jsPDF, pageWidth: number, firstLine: string) {
+  doc.setFontSize(8.5)
+  doc.setTextColor(...INVOICE_MUTED)
+  doc.text(firstLine, pageWidth / 2, 278, { align: 'center' })
+  doc.setFontSize(7.5)
+  doc.text(`Siège social : ${companyInfo.headOffice}`, pageWidth / 2, 283, { align: 'center' })
+  doc.text(`E-mail : ${companyInfo.email} · Tél : ${companyInfo.phone} / ${companyInfo.phone2}`, pageWidth / 2, 287, { align: 'center' })
+  doc.text(`RCCM ${companyInfo.rccm} · Code NIF : ${companyInfo.nif} · Numéro de compte : ${companyInfo.accountNumber}`, pageWidth / 2, 291, { align: 'center' })
+}
