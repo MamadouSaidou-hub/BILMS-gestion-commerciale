@@ -9,6 +9,7 @@ import { fetchJson } from '@/lib/fetch-json'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { businessConfig } from '@/lib/business-config'
+import { authClient } from '@/lib/auth-client'
 
 type StockItem = {
   name: string
@@ -327,6 +328,8 @@ function StockCountForm({
 }
 
 export function StockView() {
+  const { data: session } = authClient.useSession()
+  const isAdmin = session?.user?.role === 'admin'
   const [store, setStore] = useState('Tous les magasins')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | StockItem['status']>('all')
@@ -426,7 +429,7 @@ export function StockView() {
         <button className="btn-secondary" onClick={() => setReceptionModalOpen(true)}><PackagePlus size={14} /> Réception stock</button>
         <button className="btn-secondary" onClick={() => setCountModalOpen(true)}><ClipboardCheck size={14} /> Comptage physique</button>
         <button className="btn-secondary" onClick={() => setImportModalOpen(true)}><Upload size={14} /> Importer un catalogue</button>
-        <button className="btn-primary" onClick={() => setProductModalOpen(true)}><Plus size={14} /> Nouvel article</button>
+        {isAdmin && <button className="btn-primary" onClick={() => setProductModalOpen(true)}><Plus size={14} /> Nouvel article</button>}
       </div>
 
       <div className="filter-chip-row" role="group" aria-label="Filtrer par statut">
