@@ -113,6 +113,24 @@ async function buildReceiptPdf(payment: PaymentDetail) {
   doc.text(`${amountInWords(payment.amount)} ${businessConfig.currency}`, 14, afterTotal + 9)
   doc.setFont('helvetica', 'normal')
 
+  // Signature + cachet — same combined image used on the printable HTML version, scaled to its
+  // real aspect ratio (834x480) so it doesn't look stretched on the PDF.
+  const signatureDataUrl = await loadImageAsDataUrl('/signature-cachet-bilms.png')
+  const signatureWidth = 45
+  const signatureHeight = signatureWidth * (480 / 834)
+  const signatureY = Math.max(afterTotal + 16, 230)
+  if (signatureDataUrl) {
+    try {
+      doc.setFontSize(8)
+      doc.setTextColor(120, 130, 145)
+      doc.text('SIGNATURE ET CACHET', pageWidth - 14 - signatureWidth / 2, signatureY, { align: 'center' })
+      doc.addImage(signatureDataUrl, 'PNG', pageWidth - 14 - signatureWidth, signatureY + 2, signatureWidth, signatureHeight)
+      doc.text('Le Gérant', pageWidth - 14 - signatureWidth / 2, signatureY + signatureHeight + 8, { align: 'center' })
+    } catch {
+      // Unreadable/unsupported image — skip the signature rather than fail the whole export.
+    }
+  }
+
   doc.setFontSize(8.5)
   doc.setTextColor(120, 130, 145)
   doc.text(`Reçu pour valoir ce que de droit — ${companyInfo.name}`, pageWidth / 2, 285, { align: 'center' })

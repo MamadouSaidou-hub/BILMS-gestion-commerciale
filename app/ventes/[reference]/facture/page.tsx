@@ -113,6 +113,15 @@ export default async function Page({ params }: { params: Promise<{ reference: st
           </p>
         </div>
 
+        <div className="invoice-signature">
+          <div className="invoice-signature-block">
+            <p style={{ fontSize: 9, fontWeight: 700, color: MUTED, letterSpacing: '.06em', textTransform: 'uppercase', margin: 0 }}>Signature et cachet</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/signature-cachet-bilms.png" alt="Signature et cachet" />
+            <p style={{ fontSize: 10, color: MUTED, margin: 0 }}>Le Gérant</p>
+          </div>
+        </div>
+
         <div className="invoice-footer" style={{ borderTop: `1px solid ${BORDER}` }}>
           <p style={{ fontSize: 11, color: MUTED, margin: 0 }}>Merci pour votre confiance — {companyInfo.name}</p>
           <p style={{ fontSize: 9.5, color: '#b3bdcb', margin: '4px 0 0' }}>{companyInfo.address} · {companyInfo.phone} · {companyInfo.email}</p>
