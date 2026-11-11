@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CreditCard,
   Download,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react'
 import { authClient } from '@/lib/auth-client'
 import { AppearanceMenu } from '@/components/appearance-menu'
+import { ChangePasswordModal } from '@/components/change-password-modal'
 import { NotificationMenu } from '@/components/notification-menu'
 import { companyInfo } from '@/lib/company-info'
 
@@ -79,6 +81,7 @@ function UserChip() {
   const router = useRouter()
   const { data: session } = authClient.useSession()
   const [open, setOpen] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   const name = session?.user?.name ?? '…'
   const role = session?.user?.role ?? 'gestionnaire'
@@ -128,12 +131,24 @@ function UserChip() {
             type="button"
             className="nav-link"
             style={{ width: '100%', border: 0, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
+            onClick={() => {
+              setOpen(false)
+              setChangingPassword(true)
+            }}
+          >
+            <KeyRound />Changer mon mot de passe
+          </button>
+          <button
+            type="button"
+            className="nav-link"
+            style={{ width: '100%', border: 0, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
             onClick={handleLogout}
           >
             <LogOut />Se déconnecter
           </button>
         </div>
       )}
+      <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
     </div>
   )
 }
