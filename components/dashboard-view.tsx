@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Store,
   WalletCards,
+  X,
 } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { LoadError } from '@/components/load-error'
@@ -36,6 +37,15 @@ type DashboardData = {
   activity: { title: string; subtitle: string; amount: string; tone: 'green' | 'blue' | 'orange' | 'purple'; icon: 'sale' | 'stock' | 'payment' | 'transfer' }[]
   alerts: { title: string; subtitle: string; tone: 'orange' | 'blue' | 'green' }[]
   dueAlerts: { overdue: DueAlert[]; upcoming: DueAlert[] }
+}
+
+// A due alert has no id of its own (it's derived fresh from receivables/payables each load, not a
+// stored row) — this key is stable as long as the underlying debt's amount/due date don't change,
+// which is exactly when "I already saw this, stop showing it" should hold; once the amount changes
+// (partial payment) or the due date moves, it's a materially different alert and reappears.
+const DISMISSED_ALERTS_KEY = 'bilms-dismissed-due-alerts'
+function alertKey(alert: DueAlert) {
+  return `${alert.kind}-${alert.name}-${alert.amount}-${alert.dueDate}`
 }
 
 const activityIcons = { sale: ShoppingCart, stock: Package, payment: CreditCard, transfer: Store }
@@ -68,6 +78,28 @@ export function DashboardView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([])
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DISMISSED_ALERTS_KEY)
+      if (stored) setDismissedAlerts(JSON.parse(stored))
+    } catch {
+      // localStorage unavailable — dismissals just won't persist across reloads this session
+    }
+  }, [])
+
+  function dismissAlert(alert: DueAlert) {
+    setDismissedAlerts((current) => {
+      const next = [...current, alertKey(alert)]
+      try {
+        localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(next))
+      } catch {
+        // localStorage unavailable — dismissal still applies for this session
+      }
+      return next
+    })
+  }
 
   const isCustom = period === 'Personnalisé'
   const customRangeReady = !isCustom || (customFrom && customTo && customFrom <= customTo)
@@ -97,6 +129,10 @@ export function DashboardView() {
     }
   }, [period, store, customFrom, customTo, customRangeReady, isCustom, refreshKey])
 
+  const dismissedSet = useMemo(() => new Set(dismissedAlerts), [dismissedAlerts])
+  const visibleOverdue = useMemo(() => (data?.dueAlerts.overdue ?? []).filter((alert) => !dismissedSet.has(alertKey(alert))), [data, dismissedSet])
+  const visibleUpcoming = useMemo(() => (data?.dueAlerts.upcoming ?? []).filter((alert) => !dismissedSet.has(alertKey(alert))), [data, dismissedSet])
+
   const stores = data?.stores ?? ['Tous les magasins']
   const sales = data?.salesTrend ?? []
   const maxSales = useMemo(() => Math.max(1, ...sales.map((item) => item.value)), [sales])
@@ -125,22 +161,24 @@ export function DashboardView() {
 
       {error && <LoadError message={error} onRetry={() => setRefreshKey((key) => key + 1)} />}
 
-      {data && (data.dueAlerts.overdue.length > 0 || data.dueAlerts.upcoming.length > 0) && (
+      {data && (visibleOverdue.length > 0 || visibleUpcoming.length > 0) && (
         <section className="due-banner" aria-label="Échéances">
-          {data.dueAlerts.overdue.slice(0, 5).map((alert, index) => (
+          {visibleOverdue.slice(0, 5).map((alert, index) => (
             <div className="due-banner-row due-banner-overdue" key={`overdue-${index}`}>
               <AlertTriangle size={14} />
               <span><strong>{alert.name}</strong> ({alert.kind === 'client' ? 'client' : 'fournisseur'}) — {alert.amount} en retard de {Math.abs(alert.daysUntilDue)} jour{Math.abs(alert.daysUntilDue) > 1 ? 's' : ''}</span>
+              <button type="button" className="due-banner-dismiss" onClick={() => dismissAlert(alert)} aria-label="Masquer cette alerte"><X size={12} /></button>
             </div>
           ))}
-          {data.dueAlerts.upcoming.slice(0, 5).map((alert, index) => (
+          {visibleUpcoming.slice(0, 5).map((alert, index) => (
             <div className="due-banner-row due-banner-upcoming" key={`upcoming-${index}`}>
               <Clock size={14} />
               <span><strong>{alert.name}</strong> ({alert.kind === 'client' ? 'client' : 'fournisseur'}) — {alert.amount} échéance dans {alert.daysUntilDue === 0 ? "aujourd’hui" : `${alert.daysUntilDue} jour${alert.daysUntilDue > 1 ? 's' : ''}`}</span>
+              <button type="button" className="due-banner-dismiss" onClick={() => dismissAlert(alert)} aria-label="Masquer cette alerte"><X size={12} /></button>
             </div>
           ))}
-          {(data.dueAlerts.overdue.length > 5 || data.dueAlerts.upcoming.length > 5) && (
-            <div className="due-banner-more">+ {Math.max(0, data.dueAlerts.overdue.length - 5) + Math.max(0, data.dueAlerts.upcoming.length - 5)} autre(s) échéance(s)</div>
+          {(visibleOverdue.length > 5 || visibleUpcoming.length > 5) && (
+            <div className="due-banner-more">+ {Math.max(0, visibleOverdue.length - 5) + Math.max(0, visibleUpcoming.length - 5)} autre(s) échéance(s)</div>
           )}
         </section>
       )}

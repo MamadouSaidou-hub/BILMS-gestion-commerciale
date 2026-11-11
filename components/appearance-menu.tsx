@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Laptop, Moon, Palette, Sun } from 'lucide-react'
 import { ACCENT_STORAGE_KEY, accentColors, applyAccentColor } from '@/lib/accent-colors'
 import { applyTheme, THEME_STORAGE_KEY, type ThemeMode } from '@/lib/theme'
@@ -15,6 +15,7 @@ export function AppearanceMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const [open, setOpen] = useState(false)
   const [accent, setAccent] = useState<string>('')
   const [theme, setTheme] = useState<ThemeMode>('system')
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     try {
@@ -26,6 +27,17 @@ export function AppearanceMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 
     }
   }, [])
 
+  // Without this, the only way to close the menu was clicking the palette icon again — clicking a
+  // color/theme, or anywhere else on the page, left it open.
+  useEffect(() => {
+    if (!open) return
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
   function chooseAccent(value: string) {
     setAccent(value)
     applyAccentColor(value)
@@ -34,6 +46,7 @@ export function AppearanceMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 
     } catch {
       // localStorage unavailable (private browsing, etc.) — the color still applies for this session
     }
+    setOpen(false)
   }
 
   function chooseTheme(mode: ThemeMode) {
@@ -45,12 +58,13 @@ export function AppearanceMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 
     } catch {
       // localStorage unavailable — theme still applies for this session
     }
+    setOpen(false)
   }
 
   const isTopbar = variant === 'topbar'
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={containerRef} style={{ position: 'relative' }}>
       {isTopbar ? (
         <button type="button" className="icon-button" onClick={() => setOpen((value) => !value)} aria-label="Apparence">
           <Palette />
