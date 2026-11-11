@@ -14,6 +14,10 @@ export const user = pgTable(
     banned: boolean('banned').default(false),
     banReason: text('ban_reason'),
     banExpires: timestamp('ban_expires', { withTimezone: true }),
+    // Excludes this account from the "Utilisateurs" admin screen (app/api/utilisateurs/route.ts)
+    // — for a maintenance/support account the client shouldn't see in their own user roster. Does
+    // not affect login or anything else; it's a list-visibility flag only.
+    hidden: boolean('hidden').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },

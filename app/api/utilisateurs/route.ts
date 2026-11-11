@@ -1,4 +1,5 @@
 import { headers } from 'next/headers'
+import { eq } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db/client'
@@ -12,7 +13,10 @@ export async function GET() {
   if (!ctx) return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 })
   if (!isAdmin(ctx)) return NextResponse.json({ error: 'Réservé aux administrateurs.' }, { status: 403 })
 
-  const userRows = await db.select({ id: user.id, name: user.name, email: user.email, role: user.role, storeId: user.storeId }).from(user)
+  const userRows = await db
+    .select({ id: user.id, name: user.name, email: user.email, role: user.role, storeId: user.storeId })
+    .from(user)
+    .where(eq(user.hidden, false))
   const storeRows = await db.select({ id: stores.id, name: stores.name }).from(stores)
   const storeMap = new Map(storeRows.map((row) => [row.id, row.name]))
 
