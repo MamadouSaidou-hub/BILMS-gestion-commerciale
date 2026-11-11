@@ -2,8 +2,21 @@ import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
 import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
-import { createBuilding, createLease, createTenant, createUnit, endLease, recordBuildingExpense, recordRentPayment, renewLease, updateLeaseRent, updateUnitRent } from '@/lib/db/mutations/immo'
-import { getTenantDetail } from '@/lib/db/queries/immo'
+import {
+  createBuilding,
+  createLease,
+  createTenant,
+  createUnit,
+  endLease,
+  recordBuildingExpense,
+  recordRentPayment,
+  renewLease,
+  updateLeaseContractTerms,
+  updateLeaseRent,
+  updateTenant,
+  updateUnitRent,
+} from '@/lib/db/mutations/immo'
+import { getLeaseContractDetail, getTenantDetail } from '@/lib/db/queries/immo'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const buildingIds: number[] = []
@@ -284,5 +297,103 @@ describe('endLease deposit settlement', () => {
     const ended = await endLease(lease.id)
     expect(ended.depositStatus).toBe('held')
     expect(ended.depositReturnedAmount).toBeNull()
+  })
+})
+
+describe('lease contract fields', () => {
+  it('createLease defaults duration/notice/penalty and snapshots a guarantor when given one', async () => {
+    const unit = await makeUnit('CTR1')
+    const lease = await createLease({
+      unitId: unit.id,
+      tenantName: 'Locataire Contrat',
+      startDate: '2026-11-01',
+      months: 12,
+      guarantorName: 'Garant Test',
+      guarantorPhone: '622000000',
+      guarantorCin: 'CIN-GARANT-1',
+    })
+    leaseIds.push(lease.id)
+
+    expect(lease.durationMonths).toBe(12)
+    expect(lease.noticeMonths).toBe(3)
+    expect(lease.latePenaltyPct).toBe(10)
+    expect(lease.guarantorName).toBe('Garant Test')
+    expect(lease.guarantorPhone).toBe('622000000')
+  })
+
+  it('createLease leaves guarantor fields null when none is given', async () => {
+    const unit = await makeUnit('CTR2')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Sans Garant', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    expect(lease.guarantorName).toBeNull()
+  })
+
+  it('updateLeaseContractTerms corrects the guarantor and notice/penalty without touching other lease fields', async () => {
+    const unit = await makeUnit('CTR3')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Correction', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const updated = await updateLeaseContractTerms(lease.id, { noticeMonths: 2, latePenaltyPct: 5, guarantorName: 'Nouveau Garant', guarantorCin: 'CIN-99' })
+
+    expect(updated.noticeMonths).toBe(2)
+    expect(updated.latePenaltyPct).toBe(5)
+    expect(updated.guarantorName).toBe('Nouveau Garant')
+    expect(updated.guarantorCin).toBe('CIN-99')
+    expect(updated.monthlyRent).toBe(lease.monthlyRent)
+  })
+
+  it('updateLeaseContractTerms rejects a lease that does not exist', async () => {
+    await expect(updateLeaseContractTerms(999_999_999, { noticeMonths: 1 })).rejects.toThrow(/introuvable/i)
+  })
+
+  it('updateTenant fills in biographical fields a tenant was created without', async () => {
+    const tenant = await createTenant({ name: `Tenant Bio ${runId}` })
+    tenantIds.push(tenant.id)
+
+    const updated = await updateTenant(tenant.id, { cin: 'CIN-123', cinValidUntil: '2030-01-01', nationality: 'Guinéenne', profession: 'Commerçante' })
+
+    expect(updated.cin).toBe('CIN-123')
+    expect(updated.nationality).toBe('Guinéenne')
+    expect(updated.profession).toBe('Commerçante')
+  })
+
+  it('updateTenant rejects a tenant that does not exist', async () => {
+    await expect(updateTenant(999_999_999, { cin: 'X' })).rejects.toThrow(/introuvable/i)
+  })
+
+  it('getLeaseContractDetail joins the live tenant row (CIN etc.) with the lease snapshot and the unit/building', async () => {
+    const building = await createBuilding({ name: `Immeuble Contrat ${runId}`, address: 'Adresse contrat', servicesIncluded: 'Parking, gardiennage' })
+    buildingIds.push(building.id)
+    const unit = await createUnit({ buildingId: building.id, label: 'Logement Contrat', floor: 2, monthlyRent: 700000, description: 'Deux chambres, un salon' })
+    unitIds.push(unit.id)
+
+    const tenant = await createTenant({ name: `Tenant Detail ${runId}`, cin: 'CIN-DETAIL-1' })
+    tenantIds.push(tenant.id)
+
+    const lease = await createLease({
+      unitId: unit.id,
+      tenantId: tenant.id,
+      startDate: '2026-11-01',
+      months: 12,
+      depositAmount: 200000,
+      guarantorName: 'Garant Détail',
+      guarantorResidence: 'Kipé',
+    })
+    leaseIds.push(lease.id)
+
+    const detail = await getLeaseContractDetail(lease.id)
+
+    expect(detail?.tenant.cin).toBe('CIN-DETAIL-1')
+    expect(detail?.guarantor.name).toBe('Garant Détail')
+    expect(detail?.guarantor.residence).toBe('Kipé')
+    expect(detail?.unit.description).toBe('Deux chambres, un salon')
+    expect(detail?.building.servicesIncluded).toBe('Parking, gardiennage')
+    expect(detail?.depositAmount).toBe(200000)
+  })
+
+  it('getLeaseContractDetail returns null for a lease that does not exist', async () => {
+    const detail = await getLeaseContractDetail(999_999_999)
+    expect(detail).toBeNull()
   })
 })

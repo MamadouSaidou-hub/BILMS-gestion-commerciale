@@ -49,6 +49,7 @@ function currentPeriod() {
 function NewBuildingForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [servicesIncluded, setServicesIncluded] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -60,7 +61,7 @@ function NewBuildingForm({ onCreated }: { onCreated: () => void }) {
       const res = await fetch('/api/immeubles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, address }),
+        body: JSON.stringify({ name, address, servicesIncluded }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -80,6 +81,10 @@ function NewBuildingForm({ onCreated }: { onCreated: () => void }) {
       {error && <p className="form-error">{error}</p>}
       <div className="form-field"><label>Immeuble</label><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex : Immeuble A" /></div>
       <div className="form-field"><label>Adresse</label><input required value={address} onChange={(event) => setAddress(event.target.value)} /></div>
+      <div className="form-field">
+        <label>Services inclus (optionnel)</label>
+        <input value={servicesIncluded} onChange={(event) => setServicesIncluded(event.target.value)} placeholder="Ex : Accès au parking (1 place), gardiennage, nettoyage des parties communes" />
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Ajouter l’immeuble'}</button></div>
     </form>
   )
@@ -89,6 +94,7 @@ function NewUnitForm({ building, onCreated }: { building: Building; onCreated: (
   const [label, setLabel] = useState('')
   const [floor, setFloor] = useState('0')
   const [monthlyRent, setMonthlyRent] = useState('')
+  const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -100,7 +106,7 @@ function NewUnitForm({ building, onCreated }: { building: Building; onCreated: (
       const res = await fetch(`/api/immeubles/${building.id}/logements`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, floor, monthlyRent }),
+        body: JSON.stringify({ label, floor, monthlyRent, description }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -123,6 +129,10 @@ function NewUnitForm({ building, onCreated }: { building: Building; onCreated: (
         <div className="form-field"><label>Étage</label><input required type="number" min="0" value={floor} onChange={(event) => setFloor(event.target.value)} /></div>
       </div>
       <div className="form-field"><label>Loyer mensuel (GNF)</label><input required type="number" min="1" value={monthlyRent} onChange={(event) => setMonthlyRent(event.target.value)} /></div>
+      <div className="form-field">
+        <label>Composition (optionnel)</label>
+        <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ex : Deux (02) chambres, un (01) salon, une (01) cuisine équipée" />
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Ajouter le logement'}</button></div>
     </form>
   )
@@ -136,6 +146,16 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [months, setMonths] = useState('12')
   const [depositAmount, setDepositAmount] = useState('')
+  const [noticeMonths, setNoticeMonths] = useState('3')
+  const [latePenaltyPct, setLatePenaltyPct] = useState('10')
+  const [hasGuarantor, setHasGuarantor] = useState(false)
+  const [guarantorName, setGuarantorName] = useState('')
+  const [guarantorPhone, setGuarantorPhone] = useState('')
+  const [guarantorEmail, setGuarantorEmail] = useState('')
+  const [guarantorResidence, setGuarantorResidence] = useState('')
+  const [guarantorNationality, setGuarantorNationality] = useState('')
+  const [guarantorCin, setGuarantorCin] = useState('')
+  const [guarantorCinValidUntil, setGuarantorCinValidUntil] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -148,10 +168,21 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
     }
     setSubmitting(true)
     try {
+      const guarantorFields = hasGuarantor
+        ? { guarantorName, guarantorPhone, guarantorEmail, guarantorResidence, guarantorNationality, guarantorCin, guarantorCinValidUntil }
+        : {}
       const res = await fetch(`/api/logements/${unit.id}/bail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creatingTenant ? { tenantName, tenantPhone, startDate, months, depositAmount } : { tenantId, startDate, months, depositAmount }),
+        body: JSON.stringify({
+          ...(creatingTenant ? { tenantName, tenantPhone } : { tenantId }),
+          startDate,
+          months,
+          depositAmount,
+          noticeMonths,
+          latePenaltyPct,
+          ...guarantorFields,
+        }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -196,6 +227,31 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
         <div className="form-field"><label>Durée du bail (mois)</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
       </div>
       <div className="form-field"><label>Caution / dépôt de garantie (optionnel)</label><input type="number" min="0" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="0" /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Préavis (mois)</label><input required type="number" min="1" value={noticeMonths} onChange={(event) => setNoticeMonths(event.target.value)} /></div>
+        <div className="form-field"><label>Pénalité de retard (%)</label><input required type="number" min="0" value={latePenaltyPct} onChange={(event) => setLatePenaltyPct(event.target.value)} /></div>
+      </div>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--muted)', margin: '4px 0 10px' }}>
+        <input type="checkbox" checked={hasGuarantor} onChange={(event) => setHasGuarantor(event.target.checked)} /> Avec un garant (caution solidaire)
+      </label>
+      {hasGuarantor && (
+        <>
+          <div className="form-row">
+            <div className="form-field"><label>Nom du garant</label><input value={guarantorName} onChange={(event) => setGuarantorName(event.target.value)} /></div>
+            <div className="form-field"><label>Téléphone</label><input value={guarantorPhone} onChange={(event) => setGuarantorPhone(event.target.value)} /></div>
+          </div>
+          <div className="form-row">
+            <div className="form-field"><label>Email</label><input type="email" value={guarantorEmail} onChange={(event) => setGuarantorEmail(event.target.value)} /></div>
+            <div className="form-field"><label>Résidence</label><input value={guarantorResidence} onChange={(event) => setGuarantorResidence(event.target.value)} /></div>
+          </div>
+          <div className="form-row">
+            <div className="form-field"><label>Nationalité</label><input value={guarantorNationality} onChange={(event) => setGuarantorNationality(event.target.value)} placeholder="Guinéenne" /></div>
+            <div className="form-field"><label>N° CIN</label><input value={guarantorCin} onChange={(event) => setGuarantorCin(event.target.value)} /></div>
+          </div>
+          <div className="form-field"><label>CIN valable jusqu’au</label><input type="date" value={guarantorCinValidUntil} onChange={(event) => setGuarantorCinValidUntil(event.target.value)} /></div>
+        </>
+      )}
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer le bail'}</button></div>
     </form>
   )

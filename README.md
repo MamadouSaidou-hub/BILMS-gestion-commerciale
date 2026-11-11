@@ -33,6 +33,8 @@ Utiliser la chaîne de connexion **pooled** (mode *Transaction*, port 6543) four
 
 ## 4. Base de données
 
+Projet Supabase : compte **imamdiallo389@gmail.com** (référence projet `yzqeidwvtwhfalkdmuuz`, région `eu-central-1`) — utiliser ce compte pour toute migration SQL manuelle (SQL Editor) sur la base de production.
+
 Aucune base locale préinstallée — il faut un projet Postgres (Supabase) déjà créé et son `DATABASE_URL` renseigné dans `.env.local` avant ces commandes :
 
 ```bash

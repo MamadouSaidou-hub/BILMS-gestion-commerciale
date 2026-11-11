@@ -3,9 +3,57 @@ import { db } from '../client'
 import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
 import { addMonths } from '@/lib/dates'
 
-export async function createTenant(input: { name: string; phone?: string | null }) {
-  const [tenant] = await db.insert(tenants).values({ name: input.name, phone: input.phone ?? null }).returning()
+type TenantBioInput = {
+  email?: string | null
+  profession?: string | null
+  birthDate?: string | null
+  birthPlace?: string | null
+  nationality?: string | null
+  cin?: string | null
+  cinValidUntil?: string | null
+}
+
+export async function createTenant(input: { name: string; phone?: string | null } & TenantBioInput) {
+  const [tenant] = await db
+    .insert(tenants)
+    .values({
+      name: input.name,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      profession: input.profession ?? null,
+      birthDate: input.birthDate ?? null,
+      birthPlace: input.birthPlace ?? null,
+      nationality: input.nationality ?? null,
+      cin: input.cin ?? null,
+      cinValidUntil: input.cinValidUntil ?? null,
+    })
+    .returning()
   return tenant
+}
+
+// Fills in biographical details (CIN, date/lieu de naissance...) a tenant didn't have yet —
+// needed because every tenant created before this feature predates these columns, and a lease
+// contract can't be generated without them.
+export async function updateTenant(tenantId: number, input: { name?: string; phone?: string | null } & TenantBioInput) {
+  const [updated] = await db
+    .update(tenants)
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.profession !== undefined ? { profession: input.profession } : {}),
+      ...(input.birthDate !== undefined ? { birthDate: input.birthDate } : {}),
+      ...(input.birthPlace !== undefined ? { birthPlace: input.birthPlace } : {}),
+      ...(input.nationality !== undefined ? { nationality: input.nationality } : {}),
+      ...(input.cin !== undefined ? { cin: input.cin } : {}),
+      ...(input.cinValidUntil !== undefined ? { cinValidUntil: input.cinValidUntil } : {}),
+    })
+    .where(eq(tenants.id, tenantId))
+    .returning()
+  if (!updated) {
+    throw new Error('Locataire introuvable.')
+  }
+  return updated
 }
 
 export async function recordBuildingExpense(input: { buildingId?: number | null; date: string; category: string; amount: number; notes?: string | null }) {
@@ -19,18 +67,18 @@ export async function recordBuildingExpense(input: { buildingId?: number | null;
   return expense
 }
 
-export async function createBuilding(input: { name: string; address: string }) {
-  const [building] = await db.insert(buildings).values({ name: input.name, address: input.address }).returning()
+export async function createBuilding(input: { name: string; address: string; servicesIncluded?: string | null }) {
+  const [building] = await db.insert(buildings).values({ name: input.name, address: input.address, servicesIncluded: input.servicesIncluded ?? null }).returning()
   return building
 }
 
-export async function createUnit(input: { buildingId: number; label: string; floor: number; monthlyRent: number }) {
+export async function createUnit(input: { buildingId: number; label: string; floor: number; monthlyRent: number; description?: string | null }) {
   if (input.monthlyRent <= 0) {
     throw new Error('Le loyer doit être supérieur à zéro.')
   }
   const [unit] = await db
     .insert(units)
-    .values({ buildingId: input.buildingId, label: input.label, floor: input.floor, monthlyRent: input.monthlyRent })
+    .values({ buildingId: input.buildingId, label: input.label, floor: input.floor, monthlyRent: input.monthlyRent, description: input.description ?? null })
     .returning()
   return unit
 }
@@ -49,6 +97,16 @@ export async function updateUnitRent(unitId: number, monthlyRent: number) {
   return updated
 }
 
+type GuarantorInput = {
+  guarantorName?: string | null
+  guarantorPhone?: string | null
+  guarantorEmail?: string | null
+  guarantorResidence?: string | null
+  guarantorNationality?: string | null
+  guarantorCin?: string | null
+  guarantorCinValidUntil?: string | null
+}
+
 export async function createLease(input: {
   unitId: number
   // Either an existing tenant (tenantId) or a brand-new one entered inline (tenantName, +
@@ -59,7 +117,9 @@ export async function createLease(input: {
   startDate: string
   months: number
   depositAmount?: number
-}) {
+  noticeMonths?: number
+  latePenaltyPct?: number
+} & GuarantorInput) {
   if (input.months <= 0) {
     throw new Error('La durée du bail doit être supérieure à zéro.')
   }
@@ -105,6 +165,16 @@ export async function createLease(input: {
         endDate: addMonths(input.startDate, input.months),
         monthlyRent: unit.monthlyRent,
         depositAmount: input.depositAmount ?? 0,
+        durationMonths: input.months,
+        noticeMonths: input.noticeMonths ?? 3,
+        latePenaltyPct: input.latePenaltyPct ?? 10,
+        guarantorName: input.guarantorName ?? null,
+        guarantorPhone: input.guarantorPhone ?? null,
+        guarantorEmail: input.guarantorEmail ?? null,
+        guarantorResidence: input.guarantorResidence ?? null,
+        guarantorNationality: input.guarantorNationality ?? null,
+        guarantorCin: input.guarantorCin ?? null,
+        guarantorCinValidUntil: input.guarantorCinValidUntil ?? null,
       })
       .returning()
 
@@ -133,6 +203,33 @@ export async function updateLeaseRent(leaseId: number, monthlyRent: number) {
   }
 
   const [updated] = await db.update(leases).set({ monthlyRent }).where(eq(leases.id, leaseId)).returning()
+  return updated
+}
+
+// Fills in guarantor details and boilerplate contract terms a lease didn't capture at signing —
+// needed for leases created before this feature, and to correct a guarantor entered wrong.
+export async function updateLeaseContractTerms(
+  leaseId: number,
+  input: { noticeMonths?: number; latePenaltyPct?: number } & GuarantorInput,
+) {
+  const [updated] = await db
+    .update(leases)
+    .set({
+      ...(input.noticeMonths !== undefined ? { noticeMonths: input.noticeMonths } : {}),
+      ...(input.latePenaltyPct !== undefined ? { latePenaltyPct: input.latePenaltyPct } : {}),
+      ...(input.guarantorName !== undefined ? { guarantorName: input.guarantorName } : {}),
+      ...(input.guarantorPhone !== undefined ? { guarantorPhone: input.guarantorPhone } : {}),
+      ...(input.guarantorEmail !== undefined ? { guarantorEmail: input.guarantorEmail } : {}),
+      ...(input.guarantorResidence !== undefined ? { guarantorResidence: input.guarantorResidence } : {}),
+      ...(input.guarantorNationality !== undefined ? { guarantorNationality: input.guarantorNationality } : {}),
+      ...(input.guarantorCin !== undefined ? { guarantorCin: input.guarantorCin } : {}),
+      ...(input.guarantorCinValidUntil !== undefined ? { guarantorCinValidUntil: input.guarantorCinValidUntil } : {}),
+    })
+    .where(eq(leases.id, leaseId))
+    .returning()
+  if (!updated) {
+    throw new Error('Bail introuvable.')
+  }
   return updated
 }
 

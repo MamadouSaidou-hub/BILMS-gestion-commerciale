@@ -8,4 +8,17 @@ export { createSupplier, recordSupplierDelivery } from './suppliers'
 export { recordStockCount } from './stock'
 export { computeDiscount, currentPeriod, setDiscountTiers, getSupplierCycleProgress, checkAndGrantSupplierCycle, type PartyType } from './discounts'
 export { createVehicle, createRental, closeRental, recordRentalPayment, renewRental, recordVehicleExpense, createRentalClient } from './location-voiture'
-export { createBuilding, createUnit, updateUnitRent, createLease, endLease, recordRentPayment, renewLease, updateLeaseRent, recordBuildingExpense, createTenant } from './immo'
+export {
+  createBuilding,
+  createUnit,
+  updateUnitRent,
+  createLease,
+  endLease,
+  recordRentPayment,
+  renewLease,
+  updateLeaseRent,
+  updateLeaseContractTerms,
+  recordBuildingExpense,
+  createTenant,
+  updateTenant,
+} from './immo'

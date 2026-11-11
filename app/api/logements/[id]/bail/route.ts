@@ -25,6 +25,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Caution invalide.' }, { status: 400 })
   }
 
+  const noticeMonths = body.noticeMonths !== undefined && body.noticeMonths !== '' ? Number(body.noticeMonths) : undefined
+  const latePenaltyPct = body.latePenaltyPct !== undefined && body.latePenaltyPct !== '' ? Number(body.latePenaltyPct) : undefined
+
   try {
     const lease = await createLease({
       unitId,
@@ -34,6 +37,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       startDate,
       months,
       depositAmount,
+      noticeMonths,
+      latePenaltyPct,
+      guarantorName: body.guarantorName ? String(body.guarantorName).trim() : undefined,
+      guarantorPhone: body.guarantorPhone ? String(body.guarantorPhone).trim() : undefined,
+      guarantorEmail: body.guarantorEmail ? String(body.guarantorEmail).trim() : undefined,
+      guarantorResidence: body.guarantorResidence ? String(body.guarantorResidence).trim() : undefined,
+      guarantorNationality: body.guarantorNationality ? String(body.guarantorNationality).trim() : undefined,
+      guarantorCin: body.guarantorCin ? String(body.guarantorCin).trim() : undefined,
+      guarantorCinValidUntil: body.guarantorCinValidUntil ? String(body.guarantorCinValidUntil).trim() : undefined,
     })
     return NextResponse.json({ lease }, { status: 201 })
   } catch (error) {

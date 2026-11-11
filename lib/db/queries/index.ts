@@ -12,5 +12,15 @@ export { getDueDateAlerts } from './alerts'
 export { getNotifications } from './notifications'
 export { getDiscountScale, getDiscountHistory } from './discounts'
 export { getVehiclesOverview, getVehicleOptions, getAllVehicleOptions, getRentalDetail, getRentalClientsOverview, getRentalClientDetail, getLocationReportsOverview, getVehicleDueBackAlerts } from './location-voiture'
-export { getBuildingsOverview, getBuildingOptions, getRentPaymentDetail, getTenantsOverview, getTenantDetail, getImmoReportsOverview, getLeaseDeadlineAlerts, getUnpaidRentAlerts } from './immo'
+export {
+  getBuildingsOverview,
+  getBuildingOptions,
+  getRentPaymentDetail,
+  getLeaseContractDetail,
+  getTenantsOverview,
+  getTenantDetail,
+  getImmoReportsOverview,
+  getLeaseDeadlineAlerts,
+  getUnpaidRentAlerts,
+} from './immo'
 export type { PeriodKey } from '@/lib/period'

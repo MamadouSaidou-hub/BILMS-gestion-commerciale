@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   try {
-    const unit = await createUnit({ buildingId, label, floor, monthlyRent })
+    const unit = await createUnit({ buildingId, label, floor, monthlyRent, description: body.description ? String(body.description).trim() : undefined })
     return NextResponse.json({ unit }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

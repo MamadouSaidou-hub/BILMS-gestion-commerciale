@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const building = await createBuilding({ name, address })
+    const building = await createBuilding({ name, address, servicesIncluded: body.servicesIncluded ? String(body.servicesIncluded).trim() : undefined })
     return NextResponse.json({ building }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

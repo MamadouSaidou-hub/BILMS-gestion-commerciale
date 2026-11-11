@@ -431,6 +431,9 @@ export const buildings = pgTable('buildings', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
   address: text('address').notNull(),
+  // Free text for the lease contract template ("Services inclus" clause) — filled in once per
+  // building rather than per lease, since it rarely changes (parking, gardiennage...).
+  servicesIncluded: text('services_included'),
   ...timestamps,
 })
 
@@ -444,6 +447,9 @@ export const units = pgTable('units', {
   floor: integer('floor').notNull(),
   monthlyRent: doublePrecision('monthly_rent').notNull(),
   status: text('status', { enum: unitStatus }).notNull().default('vacant'),
+  // Free text room composition ("Deux chambres, un salon...") for the lease contract template —
+  // filled in once per unit, reused for every tenant who signs a lease on it.
+  description: text('description'),
   ...timestamps,
 })
 
@@ -455,6 +461,16 @@ export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
   phone: text('phone'),
+  // Biographical fields needed to auto-fill a lease contract (CONTRAT DE BAIL) — all optional
+  // since they're filled in progressively (existing tenants predate these columns), not required
+  // to create a tenant record at all.
+  email: text('email'),
+  profession: text('profession'),
+  birthDate: text('birth_date'),
+  birthPlace: text('birth_place'),
+  nationality: text('nationality'),
+  cin: text('cin'),
+  cinValidUntil: text('cin_valid_until'),
   ...timestamps,
 })
 
@@ -487,6 +503,22 @@ export const leases = pgTable('leases', {
   depositStatus: text('deposit_status', { enum: leaseDepositStatus }).notNull().default('held'),
   depositReturnedAmount: doublePrecision('deposit_returned_amount'),
   depositNotes: text('deposit_notes'),
+  // Boilerplate contract terms — default to BILMS's standard clauses (1 an renouvelable, préavis
+  // 3 mois, pénalité de retard 10%) but kept per-lease and editable in case a specific lease
+  // negotiates different terms.
+  durationMonths: integer('duration_months').notNull().default(12),
+  noticeMonths: integer('notice_months').notNull().default(3),
+  latePenaltyPct: doublePrecision('late_penalty_pct').notNull().default(10),
+  // Guarantor (caution solidaire) — optional, snapshotted on the lease like tenantName/tenantPhone
+  // rather than living on its own table, since a guarantor is a commitment tied to one specific
+  // lease, not a standing identity reused across leases the way a tenant is.
+  guarantorName: text('guarantor_name'),
+  guarantorPhone: text('guarantor_phone'),
+  guarantorEmail: text('guarantor_email'),
+  guarantorResidence: text('guarantor_residence'),
+  guarantorNationality: text('guarantor_nationality'),
+  guarantorCin: text('guarantor_cin'),
+  guarantorCinValidUntil: text('guarantor_cin_valid_until'),
   ...timestamps,
 })
 

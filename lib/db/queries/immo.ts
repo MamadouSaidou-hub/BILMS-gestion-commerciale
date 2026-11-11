@@ -201,6 +201,16 @@ export async function getTenantDetail(tenantId: number) {
       depositStatus: lease.depositStatus,
       depositReturnedAmountFormatted: lease.depositReturnedAmount !== null ? formatFcfa(lease.depositReturnedAmount) : null,
       depositNotes: lease.depositNotes,
+      durationMonths: lease.durationMonths,
+      noticeMonths: lease.noticeMonths,
+      latePenaltyPct: lease.latePenaltyPct,
+      guarantorName: lease.guarantorName,
+      guarantorPhone: lease.guarantorPhone,
+      guarantorEmail: lease.guarantorEmail,
+      guarantorResidence: lease.guarantorResidence,
+      guarantorNationality: lease.guarantorNationality,
+      guarantorCin: lease.guarantorCin,
+      guarantorCinValidUntil: lease.guarantorCinValidUntil,
       payments: leasePayments.map((payment) => ({ id: payment.id, period: payment.period, status: payment.status, amountFormatted: formatFcfa(payment.amount) })),
     }
   })
@@ -209,6 +219,13 @@ export async function getTenantDetail(tenantId: number) {
     id: tenant.id,
     name: tenant.name,
     phone: tenant.phone ?? '—',
+    email: tenant.email,
+    profession: tenant.profession,
+    birthDate: tenant.birthDate,
+    birthPlace: tenant.birthPlace,
+    nationality: tenant.nationality,
+    cin: tenant.cin,
+    cinValidUntil: tenant.cinValidUntil,
     leases: leaseHistory,
   }
 }
@@ -273,6 +290,62 @@ export async function getImmoReportsOverview(period?: string) {
     occupancyRate: unitRows.length > 0 ? Math.round((occupiedCount / unitRows.length) * 100) : 0,
     expensesByCategory,
     topTenants,
+  }
+}
+
+// Everything a "CONTRAT DE BAIL" PDF needs — tenant/guarantor identity, the unit/building it's
+// for, and the lease's financial/contractual terms. Mirrors getRentPaymentDetail's join shape
+// (lease → unit → building), plus a live read of the tenant row (not the lease's name/phone
+// snapshot) since the contract needs the tenant's full biographical details, not just the two
+// fields the lease snapshotted at signing.
+export async function getLeaseContractDetail(leaseId: number) {
+  const [lease] = await db.select().from(leases).where(eq(leases.id, leaseId))
+  if (!lease) return null
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, lease.tenantId))
+  const [unit] = await db.select().from(units).where(eq(units.id, lease.unitId))
+  const building = unit ? (await db.select().from(buildings).where(eq(buildings.id, unit.buildingId)))[0] : undefined
+
+  return {
+    id: lease.id,
+    startDate: lease.startDate,
+    endDate: lease.endDate,
+    durationMonths: lease.durationMonths,
+    noticeMonths: lease.noticeMonths,
+    latePenaltyPct: lease.latePenaltyPct,
+    monthlyRent: lease.monthlyRent,
+    monthlyRentFormatted: formatFcfa(lease.monthlyRent),
+    depositAmount: lease.depositAmount,
+    depositAmountFormatted: formatFcfa(lease.depositAmount),
+    tenant: {
+      name: lease.tenantName,
+      phone: lease.tenantPhone,
+      email: tenant?.email ?? null,
+      profession: tenant?.profession ?? null,
+      birthDate: tenant?.birthDate ?? null,
+      birthPlace: tenant?.birthPlace ?? null,
+      nationality: tenant?.nationality ?? null,
+      cin: tenant?.cin ?? null,
+      cinValidUntil: tenant?.cinValidUntil ?? null,
+    },
+    guarantor: {
+      name: lease.guarantorName,
+      phone: lease.guarantorPhone,
+      email: lease.guarantorEmail,
+      residence: lease.guarantorResidence,
+      nationality: lease.guarantorNationality,
+      cin: lease.guarantorCin,
+      cinValidUntil: lease.guarantorCinValidUntil,
+    },
+    unit: {
+      label: unit?.label ?? '—',
+      floor: unit?.floor ?? 0,
+      description: unit?.description ?? null,
+    },
+    building: {
+      name: building?.name ?? '—',
+      address: building?.address ?? '—',
+      servicesIncluded: building?.servicesIncluded ?? null,
+    },
   }
 }
 
