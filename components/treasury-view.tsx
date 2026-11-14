@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronDown, CreditCard, PiggyBank, Plus, Truck, Wallet, WalletCards } from 'lucide-react'
+import { ChevronDown, CreditCard, Pencil, PiggyBank, Plus, Trash2, Truck, Wallet, WalletCards } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -9,7 +9,18 @@ import { fetchJson } from '@/lib/fetch-json'
 
 const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
 
-type PaymentRow = { date: string; client: string; store: string; amount: string; method: 'cash' | 'mobile_money' | 'bank_transfer' | 'check' }
+type PaymentRow = {
+  id: number
+  date: string
+  client: string
+  clientId: number
+  store: string
+  storeId: number
+  amount: number
+  amountFormatted: string
+  method: 'cash' | 'mobile_money' | 'bank_transfer' | 'check'
+  editable: boolean
+}
 type TreasuryData = {
   payments: PaymentRow[]
   summary: {
@@ -107,6 +118,108 @@ function NewPaymentForm({ storeOptions, clientOptions, onCreated }: { storeOptio
   )
 }
 
+function EditPaymentForm({ payment, storeOptions, onSaved }: { payment: PaymentRow; storeOptions: StoreOption[]; onSaved: () => void }) {
+  const [amount, setAmount] = useState(String(payment.amount))
+  const [method, setMethod] = useState(payment.method)
+  const [storeId, setStoreId] = useState(String(payment.storeId))
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/tresorerie/${payment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, method, storeId, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Client : <strong>{payment.client}</strong></p>
+      <div className="form-row">
+        <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+        <div className="form-field">
+          <label>Méthode</label>
+          <select value={method} onChange={(event) => setMethod(event.target.value as typeof method)}>
+            <option value="cash">Espèces</option>
+            <option value="mobile_money">Mobile Money</option>
+            <option value="bank_transfer">Virement</option>
+            <option value="check">Chèque</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-field">
+        <label>Magasin d’encaissement</label>
+        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+        </select>
+      </div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeletePaymentConfirm({ payment, onClose, onDone }: { payment: PaymentRow; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/tresorerie/${payment.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        La créance que ce paiement avait réglée sera rouverte pour le montant correspondant. Le paiement reste visible
+        en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste et des totaux.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder le paiement</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer le paiement'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function TreasuryView() {
   const [period, setPeriod] = useState(periods[1])
   const [store, setStore] = useState('Tous les magasins')
@@ -116,6 +229,8 @@ export function TreasuryView() {
   const [storeOptions, setStoreOptions] = useState<StoreOption[]>([])
   const [clientOptions, setClientOptions] = useState<ClientOption[]>([])
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<PaymentRow | null>(null)
+  const [deletingPayment, setDeletingPayment] = useState<PaymentRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -181,16 +296,25 @@ export function TreasuryView() {
                 <th>Magasin</th>
                 <th>Méthode</th>
                 <th>Montant</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {(data?.payments ?? []).map((payment, index) => (
-                <tr key={`${payment.date}-${index}`}>
+              {(data?.payments ?? []).map((payment) => (
+                <tr key={payment.id}>
                   <td>{new Date(payment.date).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                   <td>{payment.client}</td>
                   <td>{payment.store}</td>
                   <td>{methodLabel[payment.method]}</td>
-                  <td>{payment.amount}</td>
+                  <td>{payment.amountFormatted}</td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {payment.editable && (
+                      <>
+                        <button className="btn-ghost" onClick={() => setEditingPayment(payment)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                        <button className="btn-ghost" onClick={() => setDeletingPayment(payment)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -205,6 +329,24 @@ export function TreasuryView() {
           clientOptions={clientOptions}
           onCreated={() => { setModalOpen(false); setRefreshKey((key) => key + 1) }}
         />
+      </Modal>
+      <Modal open={editingPayment !== null} onClose={() => setEditingPayment(null)} title="Modifier l’encaissement" subtitle="">
+        {editingPayment && (
+          <EditPaymentForm
+            payment={editingPayment}
+            storeOptions={storeOptions}
+            onSaved={() => { setEditingPayment(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
+      </Modal>
+      <Modal open={deletingPayment !== null} onClose={() => setDeletingPayment(null)} title="Supprimer cet encaissement ?" subtitle="">
+        {deletingPayment && (
+          <DeletePaymentConfirm
+            payment={deletingPayment}
+            onClose={() => setDeletingPayment(null)}
+            onDone={() => { setDeletingPayment(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
       </Modal>
     </AppShell>
   )

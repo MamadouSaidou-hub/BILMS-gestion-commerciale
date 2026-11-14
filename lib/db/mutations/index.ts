@@ -3,10 +3,10 @@ export { createClient, updateClient } from './clients'
 export { createProduct, addStockReception, bulkImportProducts, type BulkImportRow } from './products'
 export { createSale, updateSale, cancelSale } from './sales'
 export { type Actor } from './audit'
-export { recordPayment, recordSupplierPayment } from './payments'
+export { recordPayment, updatePayment, deletePayment, recordSupplierPayment } from './payments'
 export { createTransfer, receiveTransfer } from './transfers'
 export { createSupplier, recordSupplierDelivery } from './suppliers'
-export { recordStockCount } from './stock'
+export { recordStockCount, updateStockCount, deleteStockCount } from './stock'
 export { computeDiscount, currentPeriod, setDiscountTiers, getSupplierCycleProgress, checkAndGrantSupplierCycle, type PartyType } from './discounts'
 export {
   createVehicle,

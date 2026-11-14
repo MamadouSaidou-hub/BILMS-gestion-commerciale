@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ChevronDown, ClipboardCheck, Layers, Package, PackagePlus, Plus, Search, Upload, Wallet } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ClipboardCheck, Layers, Package, PackagePlus, Pencil, Plus, Search, Trash2, Upload, Wallet } from 'lucide-react'
 import { SkeletonCards, SkeletonRows } from '@/components/skeleton'
 import { AppShell } from '@/components/app-shell'
 import { downloadCsv } from '@/lib/download-csv'
@@ -29,7 +29,18 @@ type StockData = {
 
 type StoreOption = { id: number; name: string }
 type ProductOption = { id: number; name: string; sku: string }
-type StockCountRow = { id: number; productName: string; sku: string; storeName: string; theoreticalQty: number; countedQty: number; variance: number; createdAt: string }
+type StockCountRow = {
+  id: number
+  productId: number
+  productName: string
+  sku: string
+  storeId: number
+  storeName: string
+  theoreticalQty: number
+  countedQty: number
+  variance: number
+  createdAt: string
+}
 
 const statusLabel = { ok: 'OK', low: 'Faible', critical: 'Critique' }
 const statusBadge = { ok: 'badge-green', low: 'badge-orange', critical: 'badge-red' }
@@ -333,6 +344,90 @@ function StockCountForm({
   )
 }
 
+function EditStockCountForm({ row, onSaved }: { row: StockCountRow; onSaved: () => void }) {
+  const [countedQty, setCountedQty] = useState(String(row.countedQty))
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/stock/count/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ countedQty, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">{row.productName} ({row.sku}) — {row.storeName} · Théorique à l’époque : <strong>{row.theoreticalQty}</strong></p>
+      <div className="form-field"><label>Quantité comptée corrigée</label><input required type="number" min="0" value={countedQty} onChange={(event) => setCountedQty(event.target.value)} /></div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeleteStockCountConfirm({ row, onClose, onDone }: { row: StockCountRow; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/stock/count/${row.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        L’écart appliqué par ce comptage ({row.variance > 0 ? `+${row.variance}` : row.variance}) sera retiré du stock actuel de
+        {' '}{row.productName} — {row.storeName}. Le comptage reste visible en base (avec qui et quand) à des fins d’audit, mais
+        disparaît de la liste.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder le comptage</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer le comptage'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function StockView() {
   const { data: session } = authClient.useSession()
   const isAdmin = session?.user?.role === 'admin'
@@ -349,6 +444,8 @@ export function StockView() {
   const [receptionModalOpen, setReceptionModalOpen] = useState(false)
   const [countModalOpen, setCountModalOpen] = useState(false)
   const [counts, setCounts] = useState<StockCountRow[]>([])
+  const [editingCount, setEditingCount] = useState<StockCountRow | null>(null)
+  const [deletingCount, setDeletingCount] = useState<StockCountRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -493,6 +590,7 @@ export function StockView() {
                   <th>Théorique</th>
                   <th>Compté</th>
                   <th>Écart</th>
+                  {isAdmin && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -504,6 +602,12 @@ export function StockView() {
                     <td data-label="Théorique">{row.theoreticalQty}</td>
                     <td data-label="Compté">{row.countedQty}</td>
                     <td data-label="Écart" style={{ color: row.variance === 0 ? undefined : row.variance > 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{row.variance > 0 ? `+${row.variance}` : row.variance}</td>
+                    {isAdmin && (
+                      <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn-ghost" onClick={() => setEditingCount(row)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                        <button className="btn-ghost" onClick={() => setDeletingCount(row)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -514,6 +618,14 @@ export function StockView() {
 
       <Modal open={countModalOpen} onClose={() => setCountModalOpen(false)} title="Comptage physique" subtitle="Comparez le stock compté au stock théorique et ajustez le système.">
         <StockCountForm storeOptions={storeOptions} productOptions={productOptions} stockItems={data?.items ?? []} onCreated={refresh} />
+      </Modal>
+      <Modal open={editingCount !== null} onClose={() => setEditingCount(null)} title="Modifier le comptage" subtitle="">
+        {editingCount && <EditStockCountForm row={editingCount} onSaved={() => { setEditingCount(null); refresh() }} />}
+      </Modal>
+      <Modal open={deletingCount !== null} onClose={() => setDeletingCount(null)} title="Supprimer ce comptage ?" subtitle="">
+        {deletingCount && (
+          <DeleteStockCountConfirm row={deletingCount} onClose={() => setDeletingCount(null)} onDone={() => { setDeletingCount(null); refresh() }} />
+        )}
       </Modal>
 
       <Modal open={productModalOpen} onClose={() => setProductModalOpen(false)} title="Nouvel article" subtitle="Ajoutez un article au catalogue et son stock de départ.">

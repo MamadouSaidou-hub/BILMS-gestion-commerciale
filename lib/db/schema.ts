@@ -95,6 +95,7 @@ export const stockCounts = pgTable(
     // Not a DB-level FK to `user` (auth-schema.ts) to avoid a schema.ts <-> auth-schema.ts import cycle —
     // validated at the application layer, same polymorphic-id pattern used by discountScales.partyId.
     countedBy: text('counted_by').notNull(),
+    deletedAt: text('deleted_at'),
     ...timestamps,
   },
   (table) => [index('stock_counts_store_id_idx').on(table.storeId), index('stock_counts_product_id_idx').on(table.productId)],
@@ -185,6 +186,7 @@ export const payments = pgTable(
       .references(() => stores.id, { onDelete: 'cascade' }),
     amount: doublePrecision('amount').notNull(),
     method: text('method', { enum: paymentMethod }).notNull().default('cash'),
+    deletedAt: text('deleted_at'),
     ...timestamps,
   },
   (table) => [
@@ -192,6 +194,26 @@ export const payments = pgTable(
     index('payments_store_id_idx').on(table.storeId),
     index('payments_created_at_idx').on(table.createdAt),
   ],
+)
+
+// Records exactly which receivable(s) a payment paid down, and by how much — without this,
+// editing/deleting a payment that was split across several receivables (recordPayment's FIFO
+// allocation) couldn't be reversed precisely, risking resurrecting debt the client already paid
+// off on one receivable while leaving another untouched.
+export const paymentAllocations = pgTable(
+  'payment_allocations',
+  {
+    id: serial('id').primaryKey(),
+    paymentId: integer('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'cascade' }),
+    receivableId: integer('receivable_id')
+      .notNull()
+      .references(() => receivables.id, { onDelete: 'cascade' }),
+    amount: doublePrecision('amount').notNull(),
+    ...timestamps,
+  },
+  (table) => [index('payment_allocations_payment_id_idx').on(table.paymentId)],
 )
 
 export const receivableStatus = ['pending', 'paid', 'overdue'] as const

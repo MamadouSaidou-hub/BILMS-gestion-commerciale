@@ -14,16 +14,22 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
   const [paymentRows, salesRows, receivableRows, supplierPaymentRows, supplierPayableRows] = await Promise.all([
     db
       .select({
+        id: payments.id,
         amount: payments.amount,
         method: payments.method,
         createdAt: payments.createdAt,
+        storeId: payments.storeId,
+        clientId: payments.clientId,
+        saleId: payments.saleId,
         storeName: stores.name,
         clientName: clients.name,
       })
       .from(payments)
       .innerJoin(stores, eq(payments.storeId, stores.id))
       .innerJoin(clients, eq(payments.clientId, clients.id))
-      .where(and(gte(payments.createdAt, start.toISOString()), storeId ? eq(payments.storeId, storeId) : undefined))
+      .where(
+        and(gte(payments.createdAt, start.toISOString()), isNull(payments.deletedAt), storeId ? eq(payments.storeId, storeId) : undefined),
+      )
       .orderBy(desc(payments.createdAt)),
     db
       .select({ total: sales.totalAmount, status: sales.paymentStatus })
@@ -53,11 +59,16 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
 
   return {
     payments: paymentRows.map((row) => ({
+      id: row.id,
       date: row.createdAt,
       client: row.clientName,
+      clientId: row.clientId,
       store: row.storeName,
-      amount: formatFcfa(row.amount),
+      storeId: row.storeId,
+      amount: row.amount,
+      amountFormatted: formatFcfa(row.amount),
       method: row.method,
+      editable: row.saleId === null,
     })),
     summary: {
       totalEncaisse: formatFcfa(totalPayments + cashSales),

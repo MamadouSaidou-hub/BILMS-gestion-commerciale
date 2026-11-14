@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { products, stockCounts, stockLevels, stores } from '../schema'
 import { formatFcfa } from '@/lib/format'
@@ -58,8 +58,10 @@ export async function getStockCountHistory(storeName: string | null) {
   const rows = await db
     .select({
       id: stockCounts.id,
+      productId: stockCounts.productId,
       productName: products.name,
       sku: products.sku,
+      storeId: stockCounts.storeId,
       storeName: stores.name,
       theoreticalQty: stockCounts.theoreticalQty,
       countedQty: stockCounts.countedQty,
@@ -69,7 +71,7 @@ export async function getStockCountHistory(storeName: string | null) {
     .from(stockCounts)
     .innerJoin(products, eq(stockCounts.productId, products.id))
     .innerJoin(stores, eq(stockCounts.storeId, stores.id))
-    .where(storeId ? eq(stockCounts.storeId, storeId) : undefined)
+    .where(and(isNull(stockCounts.deletedAt), storeId ? eq(stockCounts.storeId, storeId) : undefined))
     .orderBy(desc(stockCounts.createdAt))
     .limit(50)
 
