@@ -18,6 +18,8 @@ export {
   createRentalClient,
   addRentalCharge,
   removeRentalCharge,
+  updateRental,
+  deleteRental,
 } from './location-voiture'
 export {
   createBuilding,

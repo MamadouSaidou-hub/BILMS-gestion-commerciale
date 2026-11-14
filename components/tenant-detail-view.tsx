@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Pencil } from 'lucide-react'
+import { ArrowLeft, FileText, Pencil, Trash2 } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -187,12 +187,110 @@ function EditLeaseTermsForm({ lease, onSaved }: { lease: Lease; onSaved: () => v
   )
 }
 
+type RentPayment = { id: number; period: string; status: 'paid' | 'late' | 'unpaid'; amountFormatted: string }
+
+function EditRentPaymentForm({ leaseId, payment, onSaved }: { leaseId: number; payment: RentPayment; onSaved: () => void }) {
+  const [amount, setAmount] = useState(payment.amountFormatted.replace(/\D/g, ''))
+  const [status, setStatus] = useState(payment.status)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${leaseId}/loyers/${payment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, status, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Période : <strong>{payment.period}</strong></p>
+      <div className="form-row">
+        <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="0" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+        <div className="form-field">
+          <label>Statut</label>
+          <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+            <option value="paid">Payé</option>
+            <option value="late">En retard</option>
+            <option value="unpaid">Non payé</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button></div>
+    </form>
+  )
+}
+
+function DeleteRentPaymentConfirm({ leaseId, payment, onClose, onDone }: { leaseId: number; payment: RentPayment; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${leaseId}/loyers/${payment.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        Ce paiement de loyer ({payment.period}, {payment.amountFormatted}) sera retiré de l’historique affiché, mais reste
+        conservé en base (avec qui et quand) à des fins d’audit.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function TenantDetailView({ tenantId }: { tenantId: number }) {
   const [tenant, setTenant] = useState<TenantDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editingBio, setEditingBio] = useState(false)
   const [editingLease, setEditingLease] = useState<Lease | null>(null)
+  const [editingPayment, setEditingPayment] = useState<{ leaseId: number; payment: RentPayment } | null>(null)
+  const [deletingPayment, setDeletingPayment] = useState<{ leaseId: number; payment: RentPayment } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -269,13 +367,17 @@ export function TenantDetailView({ tenantId }: { tenantId: number }) {
               <p className="section-title">Loyers — {lease.unitLabel} ({lease.buildingName})</p>
               <div className="table-scroll">
                 <table className="data-table">
-                  <thead><tr><th>Période</th><th>Montant</th><th>Statut</th></tr></thead>
+                  <thead><tr><th>Période</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
                   <tbody>
                     {lease.payments.map((payment) => (
                       <tr key={payment.id}>
                         <td data-label="Période">{payment.period}</td>
                         <td data-label="Montant">{payment.amountFormatted}</td>
                         <td data-label="Statut"><span className={`badge ${paymentStatusBadge[payment.status]}`}>{paymentStatusLabel[payment.status]}</span></td>
+                        <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button type="button" className="btn-ghost" onClick={() => setEditingPayment({ leaseId: lease.id, payment })}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                          <button type="button" className="btn-ghost" onClick={() => setDeletingPayment({ leaseId: lease.id, payment })}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -291,6 +393,26 @@ export function TenantDetailView({ tenantId }: { tenantId: number }) {
 
           <Modal open={editingLease !== null} onClose={() => setEditingLease(null)} title="Garant & conditions du bail" subtitle={editingLease ? `${editingLease.unitLabel} — ${editingLease.buildingName}` : ''}>
             {editingLease && <EditLeaseTermsForm lease={editingLease} onSaved={() => { setEditingLease(null); setRefreshKey((key) => key + 1) }} />}
+          </Modal>
+
+          <Modal open={editingPayment !== null} onClose={() => setEditingPayment(null)} title="Modifier le loyer" subtitle="">
+            {editingPayment && (
+              <EditRentPaymentForm
+                leaseId={editingPayment.leaseId}
+                payment={editingPayment.payment}
+                onSaved={() => { setEditingPayment(null); setRefreshKey((key) => key + 1) }}
+              />
+            )}
+          </Modal>
+          <Modal open={deletingPayment !== null} onClose={() => setDeletingPayment(null)} title="Supprimer ce loyer ?" subtitle="">
+            {deletingPayment && (
+              <DeleteRentPaymentConfirm
+                leaseId={deletingPayment.leaseId}
+                payment={deletingPayment.payment}
+                onClose={() => setDeletingPayment(null)}
+                onDone={() => { setDeletingPayment(null); setRefreshKey((key) => key + 1) }}
+              />
+            )}
           </Modal>
         </>
       )}

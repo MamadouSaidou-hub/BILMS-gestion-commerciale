@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
 import { formatFcfa } from '@/lib/format'
@@ -8,7 +8,7 @@ export async function getBuildingsOverview() {
   const buildingRows = await db.select().from(buildings).orderBy(buildings.name)
   const unitRows = await db.select().from(units).orderBy(units.floor, units.label)
   const leaseRows = await db.select().from(leases).orderBy(desc(leases.createdAt))
-  const paymentRows = await db.select().from(rentPayments).orderBy(desc(rentPayments.period))
+  const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt)).orderBy(desc(rentPayments.period))
   const expenseRows = await db.select().from(buildingExpenses).orderBy(desc(buildingExpenses.date))
 
   const upcomingDeadlines: { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }[] = []
@@ -127,7 +127,7 @@ export async function getUnpaidRentAlerts() {
   const period = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 
   const leaseRows = await db.select().from(leases).where(eq(leases.status, 'active'))
-  const paymentRows = await db.select().from(rentPayments).where(eq(rentPayments.period, period))
+  const paymentRows = await db.select().from(rentPayments).where(and(eq(rentPayments.period, period), isNull(rentPayments.deletedAt)))
   const unitRows = await db.select().from(units)
   const buildingRows = await db.select().from(buildings)
 
@@ -155,7 +155,7 @@ export async function getBuildingOptions() {
 export async function getTenantsOverview() {
   const tenantRows = await db.select().from(tenants).orderBy(tenants.name)
   const leaseRows = await db.select().from(leases)
-  const paymentRows = await db.select().from(rentPayments)
+  const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt))
 
   const result = tenantRows.map((tenant) => {
     const tenantLeases = leaseRows.filter((lease) => lease.tenantId === tenant.id)
@@ -182,7 +182,7 @@ export async function getTenantDetail(tenantId: number) {
   const leaseRows = await db.select().from(leases).where(eq(leases.tenantId, tenantId)).orderBy(desc(leases.createdAt))
   const unitRows = await db.select().from(units)
   const buildingRows = await db.select().from(buildings)
-  const paymentRows = await db.select().from(rentPayments)
+  const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt))
 
   const leaseHistory = leaseRows.map((lease) => {
     const unit = unitRows.find((u) => u.id === lease.unitId)
@@ -239,7 +239,7 @@ export async function getImmoReportsOverview(period?: string) {
   const selectedPeriod = period ?? currentPeriodKey()
 
   const unitRows = await db.select().from(units)
-  const paymentRows = await db.select().from(rentPayments)
+  const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt))
   const expenseRows = await db.select().from(buildingExpenses)
   const tenantRows = await db.select().from(tenants).orderBy(tenants.name)
   const leaseRows = await db.select().from(leases)
@@ -350,7 +350,7 @@ export async function getLeaseContractDetail(leaseId: number) {
 }
 
 export async function getRentPaymentDetail(paymentId: number) {
-  const [payment] = await db.select().from(rentPayments).where(eq(rentPayments.id, paymentId))
+  const [payment] = await db.select().from(rentPayments).where(and(eq(rentPayments.id, paymentId), isNull(rentPayments.deletedAt)))
   if (!payment || payment.status !== 'paid') return null
 
   const [lease] = await db.select().from(leases).where(eq(leases.id, payment.leaseId))

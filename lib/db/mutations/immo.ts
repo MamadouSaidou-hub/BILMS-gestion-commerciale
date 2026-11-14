@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
 import { addMonths } from '@/lib/dates'
+import { writeAuditLog, type Actor } from './audit'
 
 type TenantBioInput = {
   email?: string | null
@@ -301,7 +302,7 @@ export async function recordRentPayment(input: {
   const [existingForPeriod] = await db
     .select()
     .from(rentPayments)
-    .where(and(eq(rentPayments.leaseId, input.leaseId), eq(rentPayments.period, input.period)))
+    .where(and(eq(rentPayments.leaseId, input.leaseId), eq(rentPayments.period, input.period), isNull(rentPayments.deletedAt)))
 
   if (existingForPeriod) {
     const [updated] = await db
@@ -325,4 +326,75 @@ export async function recordRentPayment(input: {
     })
     .returning()
   return payment
+}
+
+export async function updateRentPayment(
+  id: number,
+  leaseId: number,
+  input: { amount?: number; status?: 'paid' | 'late' | 'unpaid'; paidDate?: string | null },
+  actor: Actor,
+  reason?: string,
+) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(rentPayments)
+      .where(and(eq(rentPayments.id, id), eq(rentPayments.leaseId, leaseId), isNull(rentPayments.deletedAt)))
+      .for('update')
+    if (!existing) {
+      throw new Error('Paiement de loyer introuvable.')
+    }
+
+    const [updated] = await tx
+      .update(rentPayments)
+      .set({
+        ...(input.amount !== undefined ? { amount: input.amount } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.paidDate !== undefined ? { paidDate: input.paidDate } : {}),
+      })
+      .where(eq(rentPayments.id, id))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'rent_payment',
+      entityId: id,
+      action: 'update',
+      actor,
+      reason,
+      beforeData: existing,
+      afterData: updated,
+    })
+
+    return updated
+  })
+}
+
+export async function deleteRentPayment(id: number, leaseId: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(rentPayments)
+      .where(and(eq(rentPayments.id, id), eq(rentPayments.leaseId, leaseId), isNull(rentPayments.deletedAt)))
+      .for('update')
+    if (!existing) {
+      throw new Error('Paiement de loyer introuvable.')
+    }
+
+    const [deleted] = await tx
+      .update(rentPayments)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(rentPayments.id, id))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'rent_payment',
+      entityId: id,
+      action: 'delete',
+      actor,
+      reason,
+      beforeData: existing,
+    })
+
+    return deleted
+  })
 }

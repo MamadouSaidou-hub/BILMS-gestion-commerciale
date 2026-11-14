@@ -1,21 +1,25 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
+import { auditLog, buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
 import {
   createBuilding,
   createLease,
   createTenant,
   createUnit,
+  deleteRentPayment,
   endLease,
   recordBuildingExpense,
   recordRentPayment,
   renewLease,
   updateLeaseContractTerms,
   updateLeaseRent,
+  updateRentPayment,
   updateTenant,
   updateUnitRent,
 } from '@/lib/db/mutations/immo'
+
+const actor = { userId: 'u1', userName: 'Admin Test' }
 import { getLeaseContractDetail, getTenantDetail } from '@/lib/db/queries/immo'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -43,6 +47,10 @@ afterAll(async () => {
   for (const id of leaseIds) {
     const [lease] = await db.select({ tenantId: leases.tenantId }).from(leases).where(eq(leases.id, id))
     if (lease) leaseTenantIds.add(lease.tenantId)
+    const leasePayments = await db.select({ id: rentPayments.id }).from(rentPayments).where(eq(rentPayments.leaseId, id))
+    for (const payment of leasePayments) {
+      await db.delete(auditLog).where(and(eq(auditLog.entityType, 'rent_payment'), eq(auditLog.entityId, payment.id)))
+    }
     await db.delete(rentPayments).where(eq(rentPayments.leaseId, id))
     await db.delete(leases).where(eq(leases.id, id))
   }
@@ -145,6 +153,70 @@ describe('recordRentPayment', () => {
 
     const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid', paidDate: '2026-10-01T00:00:00.000Z' })
     expect(payment.paidDate).toBe('2026-10-01T00:00:00.000Z')
+  })
+})
+
+describe('updateRentPayment', () => {
+  it('updates amount/status/paidDate and writes an audit entry', async () => {
+    const unit = await makeUnit('G')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Correction', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'unpaid' })
+
+    const updated = await updateRentPayment(payment.id, lease.id, { amount: 450000, status: 'paid', paidDate: '2026-11-05T00:00:00.000Z' }, actor, 'Correction montant')
+    expect(updated.amount).toBe(450000)
+    expect(updated.status).toBe('paid')
+    expect(updated.paidDate).toBe('2026-11-05T00:00:00.000Z')
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'rent_payment'), eq(auditLog.entityId, payment.id)))
+    expect(log.action).toBe('update')
+    expect(log.reason).toBe('Correction montant')
+  })
+})
+
+describe('deleteRentPayment', () => {
+  it('soft-deletes the payment, hides it from getTenantDetail, and writes an audit entry', async () => {
+    const unit = await makeUnit('H')
+    const tenant = await createTenant({ name: `Locataire Suppression ${runId}` })
+    tenantIds.push(tenant.id)
+    const lease = await createLease({ unitId: unit.id, tenantId: tenant.id, startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid' })
+
+    await deleteRentPayment(payment.id, lease.id, actor, 'Doublon')
+
+    const [row] = await db.select().from(rentPayments).where(eq(rentPayments.id, payment.id))
+    expect(row.deletedAt).not.toBeNull()
+
+    const detail = await getTenantDetail(tenant.id)
+    const leaseDetail = detail?.leases.find((l) => l.id === lease.id)
+    expect(leaseDetail?.payments.find((p) => p.id === payment.id)).toBeUndefined()
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'rent_payment'), eq(auditLog.entityId, payment.id)))
+    expect(log.action).toBe('delete')
+    expect(log.reason).toBe('Doublon')
+  })
+
+  it('rejects deleting an already-deleted payment', async () => {
+    const unit = await makeUnit('I')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Double Suppression', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'unpaid' })
+
+    await deleteRentPayment(payment.id, lease.id, actor)
+    await expect(deleteRentPayment(payment.id, lease.id, actor)).rejects.toThrow(/introuvable/i)
+  })
+
+  it('rejects when the payment does not belong to the given lease', async () => {
+    const unit = await makeUnit('J')
+    const otherUnit = await makeUnit('K')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire A', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+    const otherLease = await createLease({ unitId: otherUnit.id, tenantName: 'Locataire B', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(otherLease.id)
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'unpaid' })
+
+    await expect(deleteRentPayment(payment.id, otherLease.id, actor)).rejects.toThrow(/introuvable/i)
   })
 })
 
