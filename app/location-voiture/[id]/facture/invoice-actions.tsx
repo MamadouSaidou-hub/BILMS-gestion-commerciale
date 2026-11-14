@@ -72,9 +72,14 @@ async function buildInvoicePdf(rental: RentalDetail) {
 
   autoTable(doc, {
     startY: afterInfo,
-    head: [['Description', 'Jours', 'Tarif/jour', 'Total']],
+    head: [['Description', 'Quantité', 'Prix unitaire', 'Total']],
     body: [
-      [`Location ${rental.vehicleName} du ${rental.startDate} au ${rental.plannedEndDate}`, String(rental.days), rental.dailyRateFormatted, rental.totalAmountFormatted],
+      [
+        `Location ${rental.vehicleName} du ${rental.startDate} au ${rental.plannedEndDate}`,
+        `${rental.days} jour${rental.days > 1 ? 's' : ''}`,
+        rental.dailyRateFormatted,
+        rental.totalAmountFormatted,
+      ],
       ...rental.charges.map((charge) => [charge.description, `${charge.quantity}${charge.unit ? ` ${charge.unit}` : ''}`, formatFcfa(charge.unitPrice), charge.totalFormatted]),
     ],
     theme: 'striped',

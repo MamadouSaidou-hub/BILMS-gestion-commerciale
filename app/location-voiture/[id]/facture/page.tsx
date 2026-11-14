@@ -82,15 +82,15 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${NAVY}` }}>
                   <th style={{ textAlign: 'left', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Description</th>
-                  <th style={{ textAlign: 'right', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Jours</th>
-                  <th style={{ textAlign: 'right', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Tarif/jour</th>
+                  <th style={{ textAlign: 'right', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Quantité</th>
+                  <th style={{ textAlign: 'right', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Prix unitaire</th>
                   <th style={{ textAlign: 'right', padding: '10px 6px', fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: '.05em' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
                   <td style={{ padding: '10px 6px' }}>Location {rental.vehicleName} du {rental.startDate} au {rental.plannedEndDate}</td>
-                  <td style={{ textAlign: 'right', padding: '10px 6px' }}>{rental.days}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 6px' }}>{rental.days} jour{rental.days > 1 ? 's' : ''}</td>
                   <td style={{ textAlign: 'right', padding: '10px 6px' }}>{rental.dailyRateFormatted}</td>
                   <td style={{ textAlign: 'right', padding: '10px 6px', fontWeight: 600 }}>{rental.totalAmountFormatted}</td>
                 </tr>
