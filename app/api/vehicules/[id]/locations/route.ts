@@ -20,14 +20,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     body.dailyRateOverride !== undefined && body.dailyRateOverride !== null && body.dailyRateOverride !== '' ? Number(body.dailyRateOverride) : undefined
   const departureCity = body.departureCity ? String(body.departureCity).trim() : null
   const destinationCity = body.destinationCity ? String(body.destinationCity).trim() : null
-  const charges = Array.isArray(body.charges)
-    ? body.charges.map((charge: { description: unknown; unit: unknown; quantity: unknown; unitPrice: unknown }) => ({
-        description: String(charge.description ?? '').trim(),
-        unit: charge.unit ? String(charge.unit).trim() : null,
-        quantity: Number(charge.quantity),
-        unitPrice: Number(charge.unitPrice),
-      }))
-    : []
+  const rawCharges = Array.isArray(body.charges) ? body.charges.slice(0, 50) : []
+  if (rawCharges.some((charge: unknown) => typeof charge !== 'object' || charge === null)) {
+    return NextResponse.json({ error: 'Lignes de frais invalides.' }, { status: 400 })
+  }
+  const charges = (rawCharges as { description: unknown; unit: unknown; quantity: unknown; unitPrice: unknown }[]).map((charge) => ({
+    description: String(charge.description ?? '').trim().slice(0, 200),
+    unit: charge.unit ? String(charge.unit).trim().slice(0, 50) : null,
+    quantity: Number(charge.quantity),
+    unitPrice: Number(charge.unitPrice),
+  }))
 
   if (
     charges.some(

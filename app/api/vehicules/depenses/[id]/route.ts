@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { deleteVehicleExpense, updateVehicleExpense } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,6 +23,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
     return NextResponse.json({ error: 'Montant invalide.' }, { status: 400 })
+  }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
   }
 
   try {

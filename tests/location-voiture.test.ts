@@ -228,6 +228,32 @@ describe('addRentalCharge / removeRentalCharge', () => {
     await expect(addRentalCharge(rental.id, { description: 'Carburant', quantity: 0, unitPrice: 1000 })).rejects.toThrow(/supérieurs à zéro/i)
     await expect(addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 0 })).rejects.toThrow(/supérieurs à zéro/i)
   })
+
+  it('keeps the rental "partial" (not "paid") when the base rental is covered but an unpaid charge remains', async () => {
+    const vehicle = await makeVehicle('T', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Frais Impayés', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    await addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 20000 })
+    const paid = await recordRentalPayment(rental.id, 10000) // exactly covers the base rental, nothing on the charge
+    expect(paid.paymentStatus).toBe('partial')
+
+    const fullyPaid = await recordRentalPayment(rental.id, 20000)
+    expect(fullyPaid.paymentStatus).toBe('paid')
+  })
+
+  it('reopens the rental to "partial" when a new unpaid charge is added to an already fully-paid rental', async () => {
+    const vehicle = await makeVehicle('U', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Frais Après Paiement', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    const paid = await recordRentalPayment(rental.id, 10000)
+    expect(paid.paymentStatus).toBe('paid')
+
+    const afterCharge = await addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 5000 })
+    const [rentalRow] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, afterCharge.rentalId))
+    expect(rentalRow.paymentStatus).toBe('partial')
+  })
 })
 
 describe('recordRentalPayment', () => {

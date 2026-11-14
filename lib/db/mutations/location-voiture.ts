@@ -4,6 +4,21 @@ import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles
 import { addDays } from '@/lib/dates'
 import { writeAuditLog, type Actor } from './audit'
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/** Extra invoice lines (fuel, road fees...) are owed just as much as the vehicle-rental line
+ * itself — `paymentStatus` must be computed against `totalAmount + chargesTotal` ("grand total",
+ * same figure the invoice shows), not `totalAmount` alone, or a rental with unpaid charges can
+ * read as fully "paid" once the base rental amount is covered. */
+async function getChargesTotal(tx: Tx | typeof db, rentalId: number) {
+  const charges = await tx.select().from(rentalCharges).where(eq(rentalCharges.rentalId, rentalId))
+  return charges.reduce((sum, charge) => sum + charge.quantity * charge.unitPrice, 0)
+}
+
+function paymentStatusFor(amountPaid: number, grandTotal: number): 'paid' | 'partial' | 'unpaid' {
+  return amountPaid >= grandTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+}
+
 export async function createRentalClient(input: { name: string; phone?: string | null }) {
   const [client] = await db.insert(rentalClients).values({ name: input.name, phone: input.phone ?? null }).returning()
   return client
@@ -50,7 +65,7 @@ export async function createRental(input: {
   }
 
   return db.transaction(async (tx) => {
-    const [vehicle] = await tx.select().from(vehicles).where(eq(vehicles.id, input.vehicleId))
+    const [vehicle] = await tx.select().from(vehicles).where(eq(vehicles.id, input.vehicleId)).for('update')
     if (!vehicle) {
       throw new Error('Véhicule introuvable.')
     }
@@ -139,25 +154,28 @@ export async function renewRental(rentalId: number, additionalDays: number) {
     throw new Error('Le nombre de jours doit être supérieur à zéro.')
   }
 
-  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
-  if (!rental) {
-    throw new Error('Location introuvable.')
-  }
-  if (rental.status !== 'active') {
-    throw new Error('Seule une location active peut être renouvelée.')
-  }
+  return db.transaction(async (tx) => {
+    const [rental] = await tx.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt))).for('update')
+    if (!rental) {
+      throw new Error('Location introuvable.')
+    }
+    if (rental.status !== 'active') {
+      throw new Error('Seule une location active peut être renouvelée.')
+    }
 
-  // Extending the contract adds to what's owed, so a rental already marked "paid" can genuinely
-  // become "partial" again — recompute from the new total rather than leaving the old status.
-  const totalAmount = rental.totalAmount + rental.dailyRate * additionalDays
-  const paymentStatus = rental.amountPaid >= totalAmount ? 'paid' : rental.amountPaid > 0 ? 'partial' : 'unpaid'
+    // Extending the contract adds to what's owed, so a rental already marked "paid" can genuinely
+    // become "partial" again — recompute from the new total rather than leaving the old status.
+    const totalAmount = rental.totalAmount + rental.dailyRate * additionalDays
+    const chargesTotal = await getChargesTotal(tx, rentalId)
+    const paymentStatus = paymentStatusFor(rental.amountPaid, totalAmount + chargesTotal)
 
-  const [updated] = await db
-    .update(vehicleRentals)
-    .set({ plannedEndDate: addDays(rental.plannedEndDate, additionalDays), totalAmount, paymentStatus })
-    .where(eq(vehicleRentals.id, rentalId))
-    .returning()
-  return updated
+    const [updated] = await tx
+      .update(vehicleRentals)
+      .set({ plannedEndDate: addDays(rental.plannedEndDate, additionalDays), totalAmount, paymentStatus })
+      .where(eq(vehicleRentals.id, rentalId))
+      .returning()
+    return updated
+  })
 }
 
 export async function recordVehicleExpense(input: { vehicleId?: number | null; date: string; category: string; amount: number; notes?: string | null }) {
@@ -228,25 +246,48 @@ export async function addRentalCharge(rentalId: number, input: { description: st
   if (input.quantity <= 0 || input.unitPrice <= 0) {
     throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')
   }
-  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
-  if (!rental) {
-    throw new Error('Location introuvable.')
-  }
-  const [charge] = await db
-    .insert(rentalCharges)
-    .values({
-      rentalId,
-      description: input.description,
-      unit: input.unit ?? null,
-      quantity: input.quantity,
-      unitPrice: input.unitPrice,
-    })
-    .returning()
-  return charge
+  return db.transaction(async (tx) => {
+    const [rental] = await tx.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt))).for('update')
+    if (!rental) {
+      throw new Error('Location introuvable.')
+    }
+    const [charge] = await tx
+      .insert(rentalCharges)
+      .values({
+        rentalId,
+        description: input.description,
+        unit: input.unit ?? null,
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+      })
+      .returning()
+
+    const chargesTotal = await getChargesTotal(tx, rentalId)
+    const paymentStatus = paymentStatusFor(rental.amountPaid, rental.totalAmount + chargesTotal)
+    if (paymentStatus !== rental.paymentStatus) {
+      await tx.update(vehicleRentals).set({ paymentStatus }).where(eq(vehicleRentals.id, rentalId))
+    }
+
+    return charge
+  })
 }
 
 export async function removeRentalCharge(chargeId: number) {
-  await db.delete(rentalCharges).where(eq(rentalCharges.id, chargeId))
+  return db.transaction(async (tx) => {
+    const [charge] = await tx.select().from(rentalCharges).where(eq(rentalCharges.id, chargeId))
+    if (!charge) return
+
+    await tx.delete(rentalCharges).where(eq(rentalCharges.id, chargeId))
+
+    const [rental] = await tx.select().from(vehicleRentals).where(eq(vehicleRentals.id, charge.rentalId)).for('update')
+    if (!rental) return
+
+    const chargesTotal = await getChargesTotal(tx, charge.rentalId)
+    const paymentStatus = paymentStatusFor(rental.amountPaid, rental.totalAmount + chargesTotal)
+    if (paymentStatus !== rental.paymentStatus) {
+      await tx.update(vehicleRentals).set({ paymentStatus }).where(eq(vehicleRentals.id, charge.rentalId))
+    }
+  })
 }
 
 export async function recordRentalPayment(rentalId: number, amount: number) {
@@ -254,20 +295,23 @@ export async function recordRentalPayment(rentalId: number, amount: number) {
     throw new Error('Le montant doit être supérieur à zéro.')
   }
 
-  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
-  if (!rental) {
-    throw new Error('Location introuvable.')
-  }
+  return db.transaction(async (tx) => {
+    const [rental] = await tx.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt))).for('update')
+    if (!rental) {
+      throw new Error('Location introuvable.')
+    }
 
-  const amountPaid = rental.amountPaid + amount
-  const paymentStatus = amountPaid >= rental.totalAmount ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+    const amountPaid = rental.amountPaid + amount
+    const chargesTotal = await getChargesTotal(tx, rentalId)
+    const paymentStatus = paymentStatusFor(amountPaid, rental.totalAmount + chargesTotal)
 
-  const [updated] = await db
-    .update(vehicleRentals)
-    .set({ amountPaid, paymentStatus })
-    .where(eq(vehicleRentals.id, rentalId))
-    .returning()
-  return updated
+    const [updated] = await tx
+      .update(vehicleRentals)
+      .set({ amountPaid, paymentStatus })
+      .where(eq(vehicleRentals.id, rentalId))
+      .returning()
+    return updated
+  })
 }
 
 export async function updateRental(
@@ -296,7 +340,8 @@ export async function updateRental(
     const days = input.days ?? Math.max(1, Math.round((new Date(existing.plannedEndDate).getTime() - new Date(existing.startDate).getTime()) / (24 * 60 * 60 * 1000)))
     const dailyRate = input.dailyRateOverride ?? existing.dailyRate
     const totalAmount = dailyRate * days
-    const paymentStatus = existing.amountPaid >= totalAmount ? 'paid' : existing.amountPaid > 0 ? 'partial' : 'unpaid'
+    const chargesTotal = await getChargesTotal(tx, rentalId)
+    const paymentStatus = paymentStatusFor(existing.amountPaid, totalAmount + chargesTotal)
 
     const [updated] = await tx
       .update(vehicleRentals)

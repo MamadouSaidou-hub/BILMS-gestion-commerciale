@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { recordVehicleExpense } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function POST(request: Request) {
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
   const amount = Number(body.amount)
   const vehicleId = body.vehicleId ? Number(body.vehicleId) : null
 
-  if (!date || !category || !Number.isFinite(amount) || amount <= 0) {
+  if (!isValidDateString(date) || !category || !Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
