@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { doublePrecision, index, integer, pgTable, serial, text, uniqueIndex } from 'drizzle-orm/pg-core'
+import { doublePrecision, index, integer, jsonb, pgTable, serial, text, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamps = {
   // JS-side default (not a DB-level `now()`/`current_timestamp`) so every timestamp in the app is
@@ -134,6 +134,9 @@ export const sales = pgTable(
     // backdate a sale for record-keeping without disturbing createdAt's insertion-order role
     // (stock movement history, audit, same-day string comparisons elsewhere in the app).
     saleDate: text('sale_date'),
+    // Soft-delete — set when an admin cancels the sale. The row (and its audit_log trail) stays
+    // in place; every list/overview query filters this out instead of a real DELETE.
+    deletedAt: text('deleted_at'),
     ...timestamps,
   },
   (table) => [
@@ -437,6 +440,7 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
   paymentStatus: text('payment_status', { enum: rentalPaymentStatus }).notNull().default('unpaid'),
   status: text('status', { enum: rentalStatus }).notNull().default('active'),
   notes: text('notes'),
+  deletedAt: text('deleted_at'),
   ...timestamps,
 })
 
@@ -568,6 +572,7 @@ export const rentPayments = pgTable('rent_payments', {
   amount: doublePrecision('amount').notNull(),
   paidDate: text('paid_date'),
   status: text('status', { enum: rentPaymentStatus }).notNull().default('unpaid'),
+  deletedAt: text('deleted_at'),
   ...timestamps,
 })
 
@@ -659,3 +664,28 @@ export const clientsRelations = relations(clients, ({ many }) => ({
   receivables: many(receivables),
   payments: many(payments),
 }))
+
+// ─── Audit trail ──────────────────────────────────────────────────────────
+// Shared across every entity that supports admin edit/delete (sales, rent payments, rentals, ...)
+// — one generic table instead of a bespoke log per entity. `beforeData`/`afterData` are full
+// entity snapshots (not diffs), `afterData` is only set on an `update` (absent on `delete`).
+export const auditLogAction = ['update', 'delete'] as const
+
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: serial('id').primaryKey(),
+    entityType: text('entity_type').notNull(),
+    entityId: integer('entity_id').notNull(),
+    action: text('action', { enum: auditLogAction }).notNull(),
+    // Not a DB-level FK to `user` (auth-schema.ts) — same polymorphic-id pattern already used
+    // elsewhere in this schema (see stockCounts.countedBy) to avoid a schema <-> auth-schema cycle.
+    actorId: text('actor_id').notNull(),
+    actorName: text('actor_name').notNull(),
+    reason: text('reason'),
+    beforeData: jsonb('before_data').notNull(),
+    afterData: jsonb('after_data'),
+    ...timestamps,
+  },
+  (table) => [index('audit_log_entity_idx').on(table.entityType, table.entityId)],
+)

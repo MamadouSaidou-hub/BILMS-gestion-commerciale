@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, receivables, sales, stores, supplierPayables, supplierPayments } from '../schema'
 import { formatFcfa } from '@/lib/format'
@@ -28,7 +28,7 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
     db
       .select({ total: sales.totalAmount, status: sales.paymentStatus })
       .from(sales)
-      .where(and(gte(sales.createdAt, start.toISOString()), storeId ? eq(sales.storeId, storeId) : undefined)),
+      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeId ? eq(sales.storeId, storeId) : undefined)),
     db
       .select({ amount: receivables.amount, status: receivables.status, storeId: sales.storeId })
       .from(receivables)

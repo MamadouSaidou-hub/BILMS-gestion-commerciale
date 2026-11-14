@@ -1,7 +1,7 @@
 export { getStoreOptions, getClientOptions, resolveStoreId } from './shared'
 export { getDashboardData } from './dashboard'
 export { getStockOverview, getStockCountHistory } from './stock'
-export { getSalesList, getSaleDetail } from './sales'
+export { getSalesList, getSaleDetail, getSaleForEdit } from './sales'
 export { getClientsOverview } from './clients'
 export { getStoresOverview } from './stores'
 export { getTreasuryOverview } from './treasury'

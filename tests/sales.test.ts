@@ -1,8 +1,11 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { clients, payments, products, receivables, saleItems, sales, stockLevels, stockMovements, stores } from '@/lib/db/schema'
-import { createSale } from '@/lib/db/mutations/sales'
+import { auditLog, clients, payments, products, receivables, saleItems, sales, stockLevels, stockMovements, stores } from '@/lib/db/schema'
+import { cancelSale, createSale, updateSale } from '@/lib/db/mutations/sales'
+import { recordPayment } from '@/lib/db/mutations/payments'
+
+const actor = { userId: 'u1', userName: 'Admin Test' }
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 
@@ -43,6 +46,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const saleId of saleIds) {
+    await db.delete(auditLog).where(and(eq(auditLog.entityType, 'sale'), eq(auditLog.entityId, saleId)))
     await db.delete(receivables).where(eq(receivables.saleId, saleId))
     await db.delete(payments).where(eq(payments.saleId, saleId))
     await db.delete(saleItems).where(eq(saleItems.saleId, saleId))
@@ -160,5 +164,156 @@ describe('createSale', () => {
     })
     saleIds.push(saleWithoutDate.id)
     expect(saleWithoutDate.saleDate).toBeNull()
+  })
+})
+
+describe('updateSale', () => {
+  it('restores stock for the old quantity, deducts stock for the new quantity, and recomputes the total', async () => {
+    const before = await stockOf(sackProductId)
+    const sale = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 10, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+    expect(await stockOf(sackProductId)).toBe(before - 10)
+
+    const updated = await updateSale(
+      sale.reference,
+      { storeId, clientId: null, paymentStatus: 'paid', paidNow: 0, dueInDays: 15, items: [{ productId: sackProductId, quantity: 4, unitPrice: 1500 }] },
+      actor,
+      'Correction quantité',
+    )
+    expect(updated.totalAmount).toBe(6000)
+    expect(await stockOf(sackProductId)).toBe(before - 4)
+
+    const [item] = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id))
+    expect(item.quantity).toBe(4)
+    expect(item.unitPrice).toBe(1500)
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'sale'), eq(auditLog.entityId, sale.id)))
+    expect(log.action).toBe('update')
+    expect(log.reason).toBe('Correction quantité')
+  })
+
+  it('replaces the payment/receivable rows when paymentStatus changes', async () => {
+    const sale = await createSale({
+      storeId,
+      clientId,
+      paymentStatus: 'partial',
+      paidNow: 4000,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 10, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+
+    await updateSale(
+      sale.reference,
+      { storeId, clientId, paymentStatus: 'paid', paidNow: 0, dueInDays: 15, items: [{ productId: sackProductId, quantity: 10, unitPrice: 1000 }] },
+      actor,
+    )
+
+    const paymentRows = await db.select().from(payments).where(eq(payments.saleId, sale.id))
+    expect(paymentRows).toHaveLength(0)
+    const receivableRows = await db.select().from(receivables).where(eq(receivables.saleId, sale.id))
+    expect(receivableRows).toHaveLength(0)
+  })
+})
+
+describe('cancelSale', () => {
+  it('restores stock, removes payments/receivables, soft-deletes the sale, and writes an audit entry', async () => {
+    const before = await stockOf(sackProductId)
+    const sale = await createSale({
+      storeId,
+      clientId,
+      paymentStatus: 'partial',
+      paidNow: 4000,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 10, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+    expect(await stockOf(sackProductId)).toBe(before - 10)
+
+    await cancelSale(sale.reference, actor, 'Erreur de saisie')
+
+    expect(await stockOf(sackProductId)).toBe(before)
+
+    const [cancelledSale] = await db.select().from(sales).where(eq(sales.id, sale.id))
+    expect(cancelledSale.deletedAt).not.toBeNull()
+
+    const paymentRows = await db.select().from(payments).where(eq(payments.saleId, sale.id))
+    expect(paymentRows).toHaveLength(0)
+    const receivableRows = await db.select().from(receivables).where(eq(receivables.saleId, sale.id))
+    expect(receivableRows).toHaveLength(0)
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'sale'), eq(auditLog.entityId, sale.id)))
+    expect(log.action).toBe('delete')
+    expect(log.reason).toBe('Erreur de saisie')
+  })
+
+  it('rejects cancelling a sale twice', async () => {
+    const sale = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 1, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+
+    await cancelSale(sale.reference, actor)
+    await expect(cancelSale(sale.reference, actor)).rejects.toThrow(/introuvable/i)
+  })
+
+  it('refuses to edit or cancel a credit sale whose receivable was already settled by a standalone payment', async () => {
+    // A dedicated client, isolated from every other test's receivables — recordPayment() allocates
+    // across ALL of a client's open receivables oldest-due-first, so sharing the describe-level
+    // `clientId` here would let the payment land on an unrelated test's receivable instead.
+    const [isolatedClient] = await db.insert(clients).values({ name: `Client isolé ${runId}`, storeId }).returning()
+
+    const sale = await createSale({
+      storeId,
+      clientId: isolatedClient.id,
+      paymentStatus: 'credit',
+      paidNow: 0,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 10, unitPrice: 1000 }], // total = 10,000, full amount owed
+    })
+    saleIds.push(sale.id)
+
+    // The client later settles the debt through Trésorerie — independent of the sale, exactly
+    // like a real standalone payment. This must not be silently undone by a later edit/cancel.
+    await recordPayment({ clientId: isolatedClient.id, amount: 10000, method: 'cash', storeId })
+
+    await expect(
+      updateSale(
+        sale.reference,
+        {
+          storeId,
+          clientId: isolatedClient.id,
+          paymentStatus: 'credit',
+          paidNow: 0,
+          dueInDays: 15,
+          items: [{ productId: sackProductId, quantity: 5, unitPrice: 1000 }],
+        },
+        actor,
+      ),
+    ).rejects.toThrow(/déjà été encaissée/i)
+
+    await expect(cancelSale(sale.reference, actor)).rejects.toThrow(/déjà été encaissée/i)
+
+    // Confirm the guard didn't let anything through: the sale is untouched and the receivable stays settled.
+    const [unchangedSale] = await db.select().from(sales).where(eq(sales.id, sale.id))
+    expect(unchangedSale.deletedAt).toBeNull()
+    const [receivable] = await db.select().from(receivables).where(eq(receivables.saleId, sale.id))
+    expect(receivable.status).toBe('paid')
+
+    await db.delete(payments).where(eq(payments.clientId, isolatedClient.id))
+    await db.delete(receivables).where(eq(receivables.saleId, sale.id))
+    await db.delete(clients).where(eq(clients.id, isolatedClient.id))
   })
 })

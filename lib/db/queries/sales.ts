@@ -1,6 +1,6 @@
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { clients, products, receivables, saleItems, sales, stores } from '../schema'
+import { clients, payments, products, receivables, saleItems, sales, stores } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { periodRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
@@ -22,7 +22,7 @@ export async function getSalesList(period: PeriodKey, storeName: string | null) 
     .from(sales)
     .innerJoin(stores, eq(sales.storeId, stores.id))
     .leftJoin(clients, eq(sales.clientId, clients.id))
-    .where(and(gte(sales.createdAt, start.toISOString()), storeFilter))
+    .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter))
     .orderBy(desc(sales.createdAt))
 
   const totalRevenue = rows.reduce((sum, row) => sum + row.totalAmount, 0)
@@ -64,7 +64,7 @@ export async function getSaleDetail(reference: string) {
     .from(sales)
     .innerJoin(stores, eq(sales.storeId, stores.id))
     .leftJoin(clients, eq(sales.clientId, clients.id))
-    .where(eq(sales.reference, reference))
+    .where(and(eq(sales.reference, reference), isNull(sales.deletedAt)))
 
   if (!sale) return null
 
@@ -106,5 +106,29 @@ export async function getSaleDetail(reference: string) {
     receivable: receivable
       ? { amount: receivable.amount, amountFormatted: formatFcfa(receivable.amount), dueDate: receivable.dueDate, status: receivable.status }
       : null,
+  }
+}
+
+/** Raw, editable fields for a sale — unlike `getSaleDetail` (built for the printable invoice),
+ * this keeps ids and unformatted values so an edit form can pre-fill and re-submit them. */
+export async function getSaleForEdit(reference: string) {
+  const [sale] = await db.select().from(sales).where(and(eq(sales.reference, reference), isNull(sales.deletedAt)))
+  if (!sale) return null
+
+  const items = await db
+    .select({ productId: saleItems.productId, quantity: saleItems.quantity, unitPrice: saleItems.unitPrice })
+    .from(saleItems)
+    .where(eq(saleItems.saleId, sale.id))
+
+  const [existingPayment] = await db.select({ amount: payments.amount }).from(payments).where(eq(payments.saleId, sale.id))
+
+  return {
+    reference: sale.reference,
+    storeId: sale.storeId,
+    clientId: sale.clientId,
+    paymentStatus: sale.paymentStatus,
+    saleDate: sale.saleDate,
+    paidNow: existingPayment?.amount ?? 0,
+    items,
   }
 }

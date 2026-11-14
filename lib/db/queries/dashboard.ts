@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, products, receivables, sales, stockLevels, stockMovements, stores, transfers } from '../schema'
 import { formatFcfa, formatTrend, isPastDue, pctChange } from '@/lib/format'
@@ -47,11 +47,11 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
     db
       .select({ total: sales.totalAmount, cost: sales.costAmount })
       .from(sales)
-      .where(and(gte(sales.createdAt, start.toISOString()), storeFilter)),
+      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter)),
     db
       .select({ total: sales.totalAmount, cost: sales.costAmount })
       .from(sales)
-      .where(and(gte(sales.createdAt, previousStart.toISOString()), lt(sales.createdAt, start.toISOString()), storeFilter)),
+      .where(and(gte(sales.createdAt, previousStart.toISOString()), lt(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter)),
     db
       .select({
         quantity: stockLevels.quantity,
@@ -71,7 +71,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
         db
           .select({ total: sales.totalAmount })
           .from(sales)
-          .where(and(gte(sales.createdAt, bucketStart.toISOString()), lt(sales.createdAt, bucketEnd.toISOString()), storeFilter))
+          .where(and(gte(sales.createdAt, bucketStart.toISOString()), lt(sales.createdAt, bucketEnd.toISOString()), isNull(sales.deletedAt), storeFilter))
           .then((rows) => ({ day: label, value: rows.reduce((sum, row) => sum + row.total, 0) })),
       ),
     ),
@@ -83,7 +83,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
       })
       .from(sales)
       .innerJoin(stores, eq(sales.storeId, stores.id))
-      .where(and(gte(sales.createdAt, start.toISOString()), storeFilter))
+      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter))
       .groupBy(sales.storeId, stores.name),
     db
       .select({
@@ -94,7 +94,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
       })
       .from(sales)
       .innerJoin(stores, eq(sales.storeId, stores.id))
-      .where(storeFilter)
+      .where(and(isNull(sales.deletedAt), storeFilter))
       .orderBy(desc(sales.createdAt))
       .limit(2),
     db

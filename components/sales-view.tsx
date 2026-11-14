@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, CreditCard, Plus, Receipt, ScanLine, Search, ShoppingCart, Trash2, WalletCards } from 'lucide-react'
+import { ChevronDown, CreditCard, Pencil, Plus, Receipt, ScanLine, Search, ShoppingCart, Trash2, WalletCards } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -9,6 +9,7 @@ import { SkeletonCards, SkeletonRows } from '@/components/skeleton'
 import { downloadCsv } from '@/lib/download-csv'
 import { fetchJson } from '@/lib/fetch-json'
 import { businessConfig } from '@/lib/business-config'
+import { authClient } from '@/lib/auth-client'
 
 const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
 
@@ -308,7 +309,226 @@ function NewSaleForm({
   )
 }
 
+type SaleForEdit = {
+  reference: string
+  storeId: number
+  clientId: number | null
+  paymentStatus: 'paid' | 'partial' | 'credit'
+  saleDate: string | null
+  paidNow: number
+  items: { productId: number; quantity: number; unitPrice: number }[]
+}
+
+function EditSaleForm({
+  reference,
+  storeOptions,
+  clientOptions,
+  productOptions,
+  onSaved,
+}: {
+  reference: string
+  storeOptions: StoreOption[]
+  clientOptions: ClientOption[]
+  productOptions: ProductOption[]
+  onSaved: () => void
+}) {
+  const [sale, setSale] = useState<SaleForEdit | null>(null)
+  const [storeId, setStoreId] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [paymentStatus, setPaymentStatus] = useState<'paid' | 'partial' | 'credit'>('paid')
+  const [paidNow, setPaidNow] = useState('')
+  const [dueInDays, setDueInDays] = useState('15')
+  const [saleDate, setSaleDate] = useState('')
+  const [items, setItems] = useState<ItemRow[]>([])
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    fetchJson<{ sale: SaleForEdit }>(`/api/ventes/${reference}`)
+      .then((json) => {
+        setSale(json.sale)
+        setStoreId(String(json.sale.storeId))
+        setClientId(json.sale.clientId ? String(json.sale.clientId) : '')
+        setPaymentStatus(json.sale.paymentStatus)
+        setPaidNow(json.sale.paidNow ? String(json.sale.paidNow) : '')
+        setSaleDate(json.sale.saleDate ?? '')
+        setItems(json.sale.items.map((item) => ({ productId: String(item.productId), quantity: String(item.quantity), unitPrice: String(item.unitPrice) })))
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Erreur inconnue.'))
+  }, [reference])
+
+  const total = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0)
+
+  function updateItem(index: number, patch: Partial<ItemRow>) {
+    setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+
+  function addItem() {
+    setItems((rows) => [...rows, { productId: '', quantity: '1', unitPrice: '' }])
+  }
+
+  function removeItem(index: number) {
+    setItems((rows) => rows.filter((_, i) => i !== index))
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/ventes/${reference}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId,
+          clientId: clientId || null,
+          paymentStatus,
+          paidNow: paymentStatus === 'partial' ? paidNow : 0,
+          dueInDays,
+          saleDate: saleDate || null,
+          items: items.map((item) => ({ productId: item.productId, quantity: item.quantity, unitPrice: item.unitPrice })),
+          reason: reason || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!sale) return error ? <p className="form-error">{error}</p> : <p className="section-subtitle">Chargement...</p>
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-row">
+        <div className="form-field">
+          <label>Magasin</label>
+          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field">
+          <label>Client (optionnel)</label>
+          <select value={clientId} onChange={(event) => setClientId(event.target.value)}>
+            <option value="">Vente comptoir</option>
+            {clientOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field">
+          <label>Date de la vente</label>
+          <input type="date" value={saleDate} onChange={(event) => setSaleDate(event.target.value)} />
+        </div>
+      </div>
+
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Articles</label>
+      {items.map((item, index) => {
+        const product = productOptions.find((option) => String(option.id) === item.productId)
+        return (
+          <div className="item-row-grid" key={index} style={{ marginBottom: 10 }}>
+            <div className="form-field" style={{ marginBottom: 0 }}>
+              <select required value={item.productId} onChange={(event) => updateItem(index, { productId: event.target.value })}>
+                <option value="">Sélectionner...</option>
+                {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              </select>
+            </div>
+            <div className="form-field" style={{ marginBottom: 0 }}>
+              <input
+                required
+                type="number"
+                min="1"
+                placeholder={`Qté${product ? ` (${unitLabel[product.unit]})` : ''}`}
+                value={item.quantity}
+                onChange={(event) => updateItem(index, { quantity: event.target.value })}
+              />
+            </div>
+            <div className="form-field" style={{ marginBottom: 0 }}><input required type="number" min="0" placeholder="Prix" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} /></div>
+            <button type="button" className="item-row-remove" onClick={() => removeItem(index)} disabled={items.length === 1} aria-label="Retirer la ligne"><Trash2 size={14} /></button>
+          </div>
+        )
+      })}
+      <button type="button" className="item-add-link" onClick={addItem}><Plus size={13} /> Ajouter un article</button>
+
+      <div className="sale-total-row"><span>Total</span><span>{total.toLocaleString('fr-FR')} {businessConfig.currency}</span></div>
+
+      <div className="form-row">
+        <div className="form-field">
+          <label>Statut de paiement</label>
+          <select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as typeof paymentStatus)}>
+            <option value="paid">Payée comptant</option>
+            <option value="partial">Paiement partiel</option>
+            <option value="credit">À crédit</option>
+          </select>
+        </div>
+        {paymentStatus === 'partial' && (
+          <div className="form-field"><label>Montant payé maintenant</label><input required type="number" min="0" max={total} value={paidNow} onChange={(event) => setPaidNow(event.target.value)} /></div>
+        )}
+        {paymentStatus !== 'paid' && (
+          <div className="form-field"><label>Échéance (jours)</label><input required type="number" min="1" value={dueInDays} onChange={(event) => setDueInDays(event.target.value)} /></div>
+        )}
+      </div>
+
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function CancelSaleConfirm({ sale, onDone, onClose }: { sale: Sale; onDone: () => void; onClose: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleCancel() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/ventes/${sale.reference}/annuler`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        Le stock vendu sera restauré. Les paiements/créances liés à cette vente seront supprimés. La vente reste visible dans
+        l’historique (marquée supprimée, avec qui et quand) mais disparaît des listes et des totaux.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder la vente</button>
+        <button type="button" className="btn-primary" onClick={handleCancel} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer la vente'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function SalesView() {
+  const { data: session } = authClient.useSession()
+  const isAdmin = session?.user?.role === 'admin'
   const [period, setPeriod] = useState(periods[1])
   const [store, setStore] = useState('Tous les magasins')
   const [search, setSearch] = useState('')
@@ -319,6 +539,8 @@ export function SalesView() {
   const [clientOptions, setClientOptions] = useState<ClientOption[]>([])
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
+  const [cancellingSale, setCancellingSale] = useState<Sale | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -410,7 +632,15 @@ export function SalesView() {
                   <td data-label="Client">{sale.client}</td>
                   <td data-label="Montant">{sale.amount}</td>
                   <td data-label="Statut"><span className={`badge ${statusBadge[sale.status]}`}>{statusLabel[sale.status]}</span></td>
-                  <td><a className="btn-ghost" href={`/ventes/${sale.reference}/facture`} target="_blank" rel="noopener noreferrer"><Receipt size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Facture</a></td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <a className="btn-ghost" href={`/ventes/${sale.reference}/facture`} target="_blank" rel="noopener noreferrer"><Receipt size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Facture</a>
+                    {isAdmin && (
+                      <>
+                        <button className="btn-ghost" onClick={() => setEditingSale(sale)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                        <button className="btn-ghost" onClick={() => setCancellingSale(sale)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -429,6 +659,32 @@ export function SalesView() {
             setRefreshKey((key) => key + 1)
           }}
         />
+      </Modal>
+      <Modal open={editingSale !== null} onClose={() => setEditingSale(null)} title={`Modifier — ${editingSale?.reference ?? ''}`} wide>
+        {editingSale && (
+          <EditSaleForm
+            reference={editingSale.reference}
+            storeOptions={storeOptions}
+            clientOptions={clientOptions}
+            productOptions={productOptions}
+            onSaved={() => {
+              setEditingSale(null)
+              setRefreshKey((key) => key + 1)
+            }}
+          />
+        )}
+      </Modal>
+      <Modal open={cancellingSale !== null} onClose={() => setCancellingSale(null)} title={`Supprimer la vente #${cancellingSale?.reference ?? ''} ?`}>
+        {cancellingSale && (
+          <CancelSaleConfirm
+            sale={cancellingSale}
+            onClose={() => setCancellingSale(null)}
+            onDone={() => {
+              setCancellingSale(null)
+              setRefreshKey((key) => key + 1)
+            }}
+          />
+        )}
       </Modal>
     </AppShell>
   )
