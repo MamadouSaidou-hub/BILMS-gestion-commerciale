@@ -610,6 +610,7 @@ export const vehicleExpenses = pgTable('vehicle_expenses', {
   category: text('category').notNull(),
   amount: doublePrecision('amount').notNull(),
   notes: text('notes'),
+  deletedAt: text('deleted_at'),
   ...timestamps,
 })
 
@@ -620,6 +621,7 @@ export const buildingExpenses = pgTable('building_expenses', {
   category: text('category').notNull(),
   amount: doublePrecision('amount').notNull(),
   notes: text('notes'),
+  deletedAt: text('deleted_at'),
   ...timestamps,
 })
 

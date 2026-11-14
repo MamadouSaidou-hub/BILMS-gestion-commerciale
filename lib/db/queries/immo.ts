@@ -9,7 +9,7 @@ export async function getBuildingsOverview() {
   const unitRows = await db.select().from(units).orderBy(units.floor, units.label)
   const leaseRows = await db.select().from(leases).orderBy(desc(leases.createdAt))
   const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt)).orderBy(desc(rentPayments.period))
-  const expenseRows = await db.select().from(buildingExpenses).orderBy(desc(buildingExpenses.date))
+  const expenseRows = await db.select().from(buildingExpenses).where(isNull(buildingExpenses.deletedAt)).orderBy(desc(buildingExpenses.date))
 
   const upcomingDeadlines: { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }[] = []
 
@@ -72,6 +72,7 @@ export async function getBuildingsOverview() {
       buildingName: row.buildingId ? (buildingRows.find((b) => b.id === row.buildingId)?.name ?? '—') : 'Dépense générale',
       date: row.date,
       category: row.category,
+      amount: row.amount,
       amountFormatted: formatFcfa(row.amount),
       notes: row.notes,
     })),
@@ -240,7 +241,7 @@ export async function getImmoReportsOverview(period?: string) {
 
   const unitRows = await db.select().from(units)
   const paymentRows = await db.select().from(rentPayments).where(isNull(rentPayments.deletedAt))
-  const expenseRows = await db.select().from(buildingExpenses)
+  const expenseRows = await db.select().from(buildingExpenses).where(isNull(buildingExpenses.deletedAt))
   const tenantRows = await db.select().from(tenants).orderBy(tenants.name)
   const leaseRows = await db.select().from(leases)
 

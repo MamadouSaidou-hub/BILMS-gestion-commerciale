@@ -32,7 +32,7 @@ type Rental = {
   departureCity: string | null
   destinationCity: string | null
 }
-type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amountFormatted: string; notes: string | null }
+type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amount: number; amountFormatted: string; notes: string | null }
 type RentalClientOption = { id: number; name: string; phone: string }
 type Summary = {
   totalCollectedFormatted: string
@@ -533,6 +533,101 @@ function NewExpenseForm({ vehicles, onCreated }: { vehicles: Vehicle[]; onCreate
   )
 }
 
+function EditVehicleExpenseForm({ expense, vehicles, onSaved }: { expense: Expense; vehicles: Vehicle[]; onSaved: () => void }) {
+  const [vehicleId, setVehicleId] = useState(expense.vehicleId ? String(expense.vehicleId) : '')
+  const [date, setDate] = useState(expense.date)
+  const [category, setCategory] = useState(expense.category)
+  const [amount, setAmount] = useState(String(expense.amount))
+  const [notes, setNotes] = useState(expense.notes ?? '')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/vehicules/depenses/${expense.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicleId: vehicleId || null, date, category, amount, notes, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-field">
+        <label>Véhicule concerné (optionnel)</label>
+        <select value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
+          <option value="">Dépense générale</option>
+          {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} — {vehicle.plate}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Catégorie</label><input required value={category} onChange={(event) => setCategory(event.target.value)} /></div>
+      </div>
+      <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeleteVehicleExpenseConfirm({ expense, onClose, onDone }: { expense: Expense; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/vehicules/depenses/${expense.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Cette dépense ({expense.amountFormatted}) reste visible en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste et des totaux.</p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder la dépense</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer la dépense'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function LocationVoitureView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
@@ -546,6 +641,8 @@ export function LocationVoitureView() {
   const [chargingRental, setChargingRental] = useState<Rental | null>(null)
   const [editingRental, setEditingRental] = useState<Rental | null>(null)
   const [deletingRental, setDeletingRental] = useState<Rental | null>(null)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -673,7 +770,7 @@ export function LocationVoitureView() {
       <div className="table-panel">
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Date</th><th>Véhicule</th><th>Catégorie</th><th>Montant</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Date</th><th>Véhicule</th><th>Catégorie</th><th>Montant</th><th>Notes</th><th></th></tr></thead>
             <tbody>
               {(data?.expenses ?? []).map((expense) => (
                 <tr key={expense.id}>
@@ -682,6 +779,10 @@ export function LocationVoitureView() {
                   <td data-label="Catégorie">{expense.category}</td>
                   <td data-label="Montant">{expense.amountFormatted}</td>
                   <td data-label="Notes">{expense.notes ?? '—'}</td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn-ghost" onClick={() => setEditingExpense(expense)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                    <button className="btn-ghost" onClick={() => setDeletingExpense(expense)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -722,6 +823,24 @@ export function LocationVoitureView() {
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, assurance, carburant...">
         <NewExpenseForm vehicles={data?.vehicles ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
+      </Modal>
+      <Modal open={editingExpense !== null} onClose={() => setEditingExpense(null)} title="Modifier la dépense" subtitle="">
+        {editingExpense && (
+          <EditVehicleExpenseForm
+            expense={editingExpense}
+            vehicles={data?.vehicles ?? []}
+            onSaved={() => { setEditingExpense(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
+      </Modal>
+      <Modal open={deletingExpense !== null} onClose={() => setDeletingExpense(null)} title="Supprimer cette dépense ?" subtitle="">
+        {deletingExpense && (
+          <DeleteVehicleExpenseConfirm
+            expense={deletingExpense}
+            onClose={() => setDeletingExpense(null)}
+            onDone={() => { setDeletingExpense(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
       </Modal>
     </AppShell>
   )

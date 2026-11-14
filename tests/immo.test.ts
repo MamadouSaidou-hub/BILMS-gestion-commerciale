@@ -7,11 +7,13 @@ import {
   createLease,
   createTenant,
   createUnit,
+  deleteBuildingExpense,
   deleteRentPayment,
   endLease,
   recordBuildingExpense,
   recordRentPayment,
   renewLease,
+  updateBuildingExpense,
   updateLeaseContractTerms,
   updateLeaseRent,
   updateRentPayment,
@@ -39,6 +41,7 @@ async function makeUnit(label: string, monthlyRent = 500000) {
 
 afterAll(async () => {
   for (const id of expenseIds) {
+    await db.delete(auditLog).where(and(eq(auditLog.entityType, 'building_expense'), eq(auditLog.entityId, id)))
     await db.delete(buildingExpenses).where(eq(buildingExpenses.id, id))
   }
   // Every createLease() call auto-creates a tenant row (unless an existing tenantId was passed) —
@@ -82,6 +85,45 @@ describe('recordBuildingExpense', () => {
 
   it('rejects a non-positive amount', async () => {
     await expect(recordBuildingExpense({ date: '2026-11-01', category: 'Test', amount: -1 })).rejects.toThrow(/supérieur à zéro/i)
+  })
+})
+
+describe('updateBuildingExpense', () => {
+  it('updates the amount/category and writes an audit entry', async () => {
+    const expense = await recordBuildingExpense({ date: '2026-11-01', category: 'Plomberie', amount: 200000 })
+    expenseIds.push(expense.id)
+
+    const updated = await updateBuildingExpense(expense.id, { amount: 250000, category: 'Plomberie urgente' }, actor, 'Facture corrigée')
+    expect(updated.amount).toBe(250000)
+    expect(updated.category).toBe('Plomberie urgente')
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'building_expense'), eq(auditLog.entityId, expense.id)))
+    expect(log.action).toBe('update')
+    expect(log.reason).toBe('Facture corrigée')
+  })
+})
+
+describe('deleteBuildingExpense', () => {
+  it('soft-deletes the expense and writes an audit entry', async () => {
+    const expense = await recordBuildingExpense({ date: '2026-11-01', category: 'Taxe foncière', amount: 500000 })
+    expenseIds.push(expense.id)
+
+    await deleteBuildingExpense(expense.id, actor, 'Doublon')
+
+    const [row] = await db.select().from(buildingExpenses).where(eq(buildingExpenses.id, expense.id))
+    expect(row.deletedAt).not.toBeNull()
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'building_expense'), eq(auditLog.entityId, expense.id)))
+    expect(log.action).toBe('delete')
+    expect(log.reason).toBe('Doublon')
+  })
+
+  it('rejects deleting an expense twice', async () => {
+    const expense = await recordBuildingExpense({ date: '2026-11-01', category: 'Test', amount: 1000 })
+    expenseIds.push(expense.id)
+
+    await deleteBuildingExpense(expense.id, actor)
+    await expect(deleteBuildingExpense(expense.id, actor)).rejects.toThrow(/introuvable/i)
   })
 })
 

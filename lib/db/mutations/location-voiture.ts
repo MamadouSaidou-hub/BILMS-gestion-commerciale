@@ -171,6 +171,59 @@ export async function recordVehicleExpense(input: { vehicleId?: number | null; d
   return expense
 }
 
+export async function updateVehicleExpense(
+  id: number,
+  input: { vehicleId?: number | null; date?: string; category?: string; amount?: number; notes?: string | null },
+  actor: Actor,
+  reason?: string,
+) {
+  if (input.amount !== undefined && input.amount <= 0) {
+    throw new Error('Le montant doit être supérieur à zéro.')
+  }
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(vehicleExpenses).where(and(eq(vehicleExpenses.id, id), isNull(vehicleExpenses.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Dépense introuvable.')
+    }
+
+    const [updated] = await tx
+      .update(vehicleExpenses)
+      .set({
+        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+        ...(input.date !== undefined ? { date: input.date } : {}),
+        ...(input.category !== undefined ? { category: input.category } : {}),
+        ...(input.amount !== undefined ? { amount: input.amount } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      })
+      .where(eq(vehicleExpenses.id, id))
+      .returning()
+
+    await writeAuditLog(tx, { entityType: 'vehicle_expense', entityId: id, action: 'update', actor, reason, beforeData: existing, afterData: updated })
+
+    return updated
+  })
+}
+
+export async function deleteVehicleExpense(id: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(vehicleExpenses).where(and(eq(vehicleExpenses.id, id), isNull(vehicleExpenses.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Dépense introuvable.')
+    }
+
+    const [deleted] = await tx
+      .update(vehicleExpenses)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(vehicleExpenses.id, id))
+      .returning()
+
+    await writeAuditLog(tx, { entityType: 'vehicle_expense', entityId: id, action: 'delete', actor, reason, beforeData: existing })
+
+    return deleted
+  })
+}
+
 export async function addRentalCharge(rentalId: number, input: { description: string; unit?: string | null; quantity: number; unitPrice: number }) {
   if (input.quantity <= 0 || input.unitPrice <= 0) {
     throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')

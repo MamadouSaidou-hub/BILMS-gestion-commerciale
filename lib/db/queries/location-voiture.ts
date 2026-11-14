@@ -8,7 +8,7 @@ import { periodRange, type PeriodKey } from '@/lib/period'
 export async function getVehiclesOverview() {
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
   const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt)).orderBy(desc(vehicleRentals.createdAt))
-  const expenseRows = await db.select().from(vehicleExpenses).orderBy(desc(vehicleExpenses.date))
+  const expenseRows = await db.select().from(vehicleExpenses).where(isNull(vehicleExpenses.deletedAt)).orderBy(desc(vehicleExpenses.date))
 
   const rentals = rentalRows.map((rental) => ({
     id: rental.id,
@@ -58,6 +58,7 @@ export async function getVehiclesOverview() {
       vehicleName: row.vehicleId ? (vehicleRows.find((v) => v.id === row.vehicleId)?.name ?? '—') : 'Dépense générale',
       date: row.date,
       category: row.category,
+      amount: row.amount,
       amountFormatted: formatFcfa(row.amount),
       notes: row.notes,
     })),
@@ -167,7 +168,7 @@ export async function getLocationReportsOverview(period: PeriodKey) {
 
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
   const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt))
-  const expenseRows = await db.select().from(vehicleExpenses)
+  const expenseRows = await db.select().from(vehicleExpenses).where(isNull(vehicleExpenses.deletedAt))
   const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
 
   // No payment-date history exists on a rental (see getVehiclesOverview's comment) — createdAt

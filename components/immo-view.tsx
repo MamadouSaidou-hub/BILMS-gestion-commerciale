@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, Banknote, Building2, CheckCircle2, FileText, Home, Pencil, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, Banknote, Building2, CheckCircle2, FileText, Home, Pencil, Plus, ReceiptText, RefreshCw, Trash2, TrendingDown, TrendingUp } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -15,7 +15,7 @@ type Unit = { id: number; label: string; floor: number; monthlyRent: number; mon
 type Building = { id: number; name: string; address: string; units: Unit[] }
 type Deadline = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; endDate: string; daysRemaining: number }
 type UnpaidRent = { leaseId: number; unitLabel: string; buildingName: string; tenantName: string; period: string; amountFormatted: string; daysOverdue: number }
-type Expense = { id: number; buildingId: number | null; buildingName: string; date: string; category: string; amountFormatted: string; notes: string | null }
+type Expense = { id: number; buildingId: number | null; buildingName: string; date: string; category: string; amount: number; amountFormatted: string; notes: string | null }
 type Summary = {
   rentCollectedFormatted: string
   totalExpensesFormatted: string
@@ -473,6 +473,101 @@ function NewBuildingExpenseForm({ buildings, onCreated }: { buildings: Building[
   )
 }
 
+function EditBuildingExpenseForm({ expense, buildings, onSaved }: { expense: Expense; buildings: Building[]; onSaved: () => void }) {
+  const [buildingId, setBuildingId] = useState(expense.buildingId ? String(expense.buildingId) : '')
+  const [date, setDate] = useState(expense.date)
+  const [category, setCategory] = useState(expense.category)
+  const [amount, setAmount] = useState(String(expense.amount))
+  const [notes, setNotes] = useState(expense.notes ?? '')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/immeubles/depenses/${expense.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildingId: buildingId || null, date, category, amount, notes, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-field">
+        <label>Immeuble concerné (optionnel)</label>
+        <select value={buildingId} onChange={(event) => setBuildingId(event.target.value)}>
+          <option value="">Dépense générale</option>
+          {buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Catégorie</label><input required value={category} onChange={(event) => setCategory(event.target.value)} /></div>
+      </div>
+      <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeleteBuildingExpenseConfirm({ expense, onClose, onDone }: { expense: Expense; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/immeubles/depenses/${expense.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Cette dépense ({expense.amountFormatted}) reste visible en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste et des totaux.</p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder la dépense</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer la dépense'}</button>
+      </div>
+    </div>
+  )
+}
+
 function RecordRentForm({ lease, period, onSaved }: { lease: ActiveLease; period: string; onSaved: () => void }) {
   const [amount, setAmount] = useState('')
   const [paidDate, setPaidDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -530,6 +625,8 @@ export function ImmoView() {
   const [editingUnitRent, setEditingUnitRent] = useState<Unit | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [recordingRentLease, setRecordingRentLease] = useState<ActiveLease | null>(null)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -708,7 +805,7 @@ export function ImmoView() {
       <div className="table-panel">
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Date</th><th>Immeuble</th><th>Catégorie</th><th>Montant</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Date</th><th>Immeuble</th><th>Catégorie</th><th>Montant</th><th>Notes</th><th></th></tr></thead>
             <tbody>
               {(data?.expenses ?? []).map((expense) => (
                 <tr key={expense.id}>
@@ -717,6 +814,10 @@ export function ImmoView() {
                   <td data-label="Catégorie">{expense.category}</td>
                   <td data-label="Montant">{expense.amountFormatted}</td>
                   <td data-label="Notes">{expense.notes ?? '—'}</td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn-ghost" onClick={() => setEditingExpense(expense)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                    <button className="btn-ghost" onClick={() => setDeletingExpense(expense)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -748,6 +849,24 @@ export function ImmoView() {
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, réparations, taxes...">
         <NewBuildingExpenseForm buildings={data?.buildings ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
+      </Modal>
+      <Modal open={editingExpense !== null} onClose={() => setEditingExpense(null)} title="Modifier la dépense" subtitle="">
+        {editingExpense && (
+          <EditBuildingExpenseForm
+            expense={editingExpense}
+            buildings={data?.buildings ?? []}
+            onSaved={() => { setEditingExpense(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
+      </Modal>
+      <Modal open={deletingExpense !== null} onClose={() => setDeletingExpense(null)} title="Supprimer cette dépense ?" subtitle="">
+        {deletingExpense && (
+          <DeleteBuildingExpenseConfirm
+            expense={deletingExpense}
+            onClose={() => setDeletingExpense(null)}
+            onDone={() => { setDeletingExpense(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
       </Modal>
       <Modal open={recordingRentLease !== null} onClose={() => setRecordingRentLease(null)} title="Enregistrer le loyer" subtitle={recordingRentLease?.tenantName ?? ''}>
         {recordingRentLease && (

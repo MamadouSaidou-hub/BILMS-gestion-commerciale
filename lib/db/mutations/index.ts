@@ -15,6 +15,8 @@ export {
   recordRentalPayment,
   renewRental,
   recordVehicleExpense,
+  updateVehicleExpense,
+  deleteVehicleExpense,
   createRentalClient,
   addRentalCharge,
   removeRentalCharge,
@@ -34,6 +36,8 @@ export {
   updateLeaseRent,
   updateLeaseContractTerms,
   recordBuildingExpense,
+  updateBuildingExpense,
+  deleteBuildingExpense,
   createTenant,
   updateTenant,
 } from './immo'
