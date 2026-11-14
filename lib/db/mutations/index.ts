@@ -1,5 +1,5 @@
 export { createStore } from './stores'
-export { createClient } from './clients'
+export { createClient, updateClient } from './clients'
 export { createProduct, addStockReception, bulkImportProducts, type BulkImportRow } from './products'
 export { createSale } from './sales'
 export { recordPayment, recordSupplierPayment } from './payments'

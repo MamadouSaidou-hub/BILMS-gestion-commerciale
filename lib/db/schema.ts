@@ -18,6 +18,8 @@ export const stores = pgTable('stores', {
   ...timestamps,
 })
 
+export const productUnit = ['sack', 'carton'] as const
+
 export const products = pgTable('products', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
@@ -27,8 +29,13 @@ export const products = pgTable('products', {
   costPrice: doublePrecision('cost_price').notNull(),
   reorderThreshold: integer('reorder_threshold').notNull().default(10),
   // Weight of one sack, in kg — lets a sale be entered in tonnes and converted to a sack count.
-  // Null means this product can only be sold by sack count directly.
+  // Null means this product can only be sold by sack count directly. Legacy: no longer offered in
+  // new-sale UI (sales are now sack/carton count only), kept so old sale_items.unit='tonne' rows
+  // still mean something.
   sackWeightKg: doublePrecision('sack_weight_kg'),
+  // Fixed at product creation — drives the unit label shown at sale time (sack_items.unit is set
+  // from this, not chosen per-sale).
+  unit: text('unit', { enum: productUnit }).notNull().default('sack'),
   ...timestamps,
 })
 
@@ -100,6 +107,10 @@ export const clients = pgTable(
     name: text('name').notNull(),
     phone: text('phone'),
     storeId: integer('store_id').references(() => stores.id, { onDelete: 'set null' }),
+    // Where the client is based (e.g. a market/neighborhood name) and an optional reference
+    // code/identifier the business uses for them — display/filtering only, no business logic.
+    zone: text('zone'),
+    reference: text('reference'),
     ...timestamps,
   },
   (table) => [index('clients_store_id_idx').on(table.storeId)],
@@ -119,6 +130,10 @@ export const sales = pgTable(
     totalAmount: doublePrecision('total_amount').notNull(),
     costAmount: doublePrecision('cost_amount').notNull(),
     paymentStatus: text('payment_status', { enum: salePaymentStatus }).notNull().default('paid'),
+    // The business date of the sale (YYYY-MM-DD), separate from `createdAt` — lets an admin
+    // backdate a sale for record-keeping without disturbing createdAt's insertion-order role
+    // (stock movement history, audit, same-day string comparisons elsewhere in the app).
+    saleDate: text('sale_date'),
     ...timestamps,
   },
   (table) => [
@@ -128,7 +143,9 @@ export const sales = pgTable(
   ],
 )
 
-export const saleItemUnit = ['sack', 'tonne'] as const
+// 'tonne' is legacy — still valid for old rows, but no longer offered when entering a new sale
+// (new sales are sack/carton count only, unit derived from the product, not chosen per-sale).
+export const saleItemUnit = ['sack', 'tonne', 'carton'] as const
 
 export const saleItems = pgTable(
   'sale_items',

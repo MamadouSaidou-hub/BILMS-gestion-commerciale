@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CreditCard, Percent, Plus, Search, Users, Wallet, WalletCards } from 'lucide-react'
+import { AlertTriangle, CreditCard, Pencil, Percent, Plus, Search, Users, Wallet, WalletCards } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { DiscountScaleModal } from '@/components/discount-scale-modal'
@@ -14,6 +14,8 @@ type Client = {
   id: number
   name: string
   phone: string
+  zone: string
+  reference: string
   storeId: number | null
   store: string
   outstanding: string
@@ -44,6 +46,8 @@ function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: 
 function NewClientForm({ storeOptions, onCreated }: { storeOptions: StoreOption[]; onCreated: () => void }) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [zone, setZone] = useState('')
+  const [reference, setReference] = useState('')
   const [storeId, setStoreId] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -56,7 +60,7 @@ function NewClientForm({ storeOptions, onCreated }: { storeOptions: StoreOption[
       const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, storeId: storeId || null }),
+        body: JSON.stringify({ name, phone, zone, reference, storeId: storeId || null }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -76,6 +80,10 @@ function NewClientForm({ storeOptions, onCreated }: { storeOptions: StoreOption[
       {error && <p className="form-error">{error}</p>}
       <div className="form-field"><label>Nom du client</label><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex : Boutique Fatima" /></div>
       <div className="form-field"><label>Téléphone</label><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="6XX XX XX XX" /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Zone</label><input value={zone} onChange={(event) => setZone(event.target.value)} placeholder="Ex : Madina" /></div>
+        <div className="form-field"><label>Référence (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ex : CL-0042" /></div>
+      </div>
       <div className="form-field">
         <label>Magasin habituel (optionnel)</label>
         <select value={storeId} onChange={(event) => setStoreId(event.target.value)}>
@@ -84,6 +92,51 @@ function NewClientForm({ storeOptions, onCreated }: { storeOptions: StoreOption[
         </select>
       </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer le client'}</button></div>
+    </form>
+  )
+}
+
+function EditClientForm({ client, onSaved }: { client: Client; onSaved: () => void }) {
+  const [name, setName] = useState(client.name)
+  const [phone, setPhone] = useState(client.phone === '—' ? '' : client.phone)
+  const [zone, setZone] = useState(client.zone === '—' ? '' : client.zone)
+  const [reference, setReference] = useState(client.reference === '—' ? '' : client.reference)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, zone, reference }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-field"><label>Nom du client</label><input required value={name} onChange={(event) => setName(event.target.value)} /></div>
+      <div className="form-field"><label>Téléphone</label><input value={phone} onChange={(event) => setPhone(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Zone</label><input value={zone} onChange={(event) => setZone(event.target.value)} /></div>
+        <div className="form-field"><label>Référence</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
+      </div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer'}</button></div>
     </form>
   )
 }
@@ -156,6 +209,7 @@ export function ClientsView() {
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [paymentClient, setPaymentClient] = useState<Client | null>(null)
   const [discountClient, setDiscountClient] = useState<Client | null>(null)
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -172,7 +226,9 @@ export function ClientsView() {
     const rows = data?.clients ?? []
     const query = search.trim().toLowerCase()
     if (!query) return rows
-    return rows.filter((row) => row.name.toLowerCase().includes(query) || row.phone.toLowerCase().includes(query))
+    return rows.filter(
+      (row) => row.name.toLowerCase().includes(query) || row.phone.toLowerCase().includes(query) || row.zone.toLowerCase().includes(query),
+    )
   }, [data, search])
 
   return (
@@ -204,6 +260,7 @@ export function ClientsView() {
               <tr>
                 <th>Client</th>
                 <th>Téléphone</th>
+                <th>Zone</th>
                 <th>Magasin</th>
                 <th>Encaissé au total</th>
                 <th>Créance en cours</th>
@@ -216,6 +273,7 @@ export function ClientsView() {
                 <tr key={client.id}>
                   <td data-label="Client"><span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CreditCard size={13} color="var(--faint)" />{client.name}</span></td>
                   <td data-label="Téléphone">{client.phone}</td>
+                  <td data-label="Zone">{client.zone}</td>
                   <td data-label="Magasin">{client.store}</td>
                   <td data-label="Encaissé">{client.totalPaid}</td>
                   <td data-label="Créance">{client.outstanding}</td>
@@ -226,6 +284,9 @@ export function ClientsView() {
                     )}
                     {isAdmin && (
                       <button className="btn-ghost" onClick={() => setDiscountClient(client)}><Percent size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Barème</button>
+                    )}
+                    {isAdmin && (
+                      <button className="btn-ghost" onClick={() => setEditingClient(client)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
                     )}
                   </td>
                 </tr>
@@ -246,6 +307,11 @@ export function ClientsView() {
             storeOptions={storeOptions}
             onCreated={() => { setPaymentClient(null); setRefreshKey((key) => key + 1) }}
           />
+        )}
+      </Modal>
+      <Modal open={editingClient !== null} onClose={() => setEditingClient(null)} title={`Modifier — ${editingClient?.name ?? ''}`}>
+        {editingClient && (
+          <EditClientForm client={editingClient} onSaved={() => { setEditingClient(null); setRefreshKey((key) => key + 1) }} />
         )}
       </Modal>
       {discountClient && (

@@ -2,7 +2,6 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { payments, products, receivables, saleItems, sales, stockLevels, stockMovements } from '../schema'
 import { getQuantity } from './shared'
-import { businessConfig } from '@/lib/business-config'
 
 export async function createSale(input: {
   storeId: number
@@ -10,7 +9,8 @@ export async function createSale(input: {
   paymentStatus: 'paid' | 'partial' | 'credit'
   paidNow: number
   dueInDays: number
-  items: { productId: number; quantity: number; unitPrice: number; unit?: 'sack' | 'tonne'; tonnage?: number }[]
+  saleDate?: string | null
+  items: { productId: number; quantity: number; unitPrice: number }[]
 }) {
   if (input.items.length === 0) {
     throw new Error('Une vente doit contenir au moins un article.')
@@ -20,24 +20,13 @@ export async function createSale(input: {
     const productRows = await tx.select().from(products)
     const productMap = new Map(productRows.map((product) => [product.id, product]))
 
-    const items = input.items.map((item) => {
-      if (item.unit === 'tonne') {
-        const product = productMap.get(item.productId)
-        if (!product?.sackWeightKg) {
-          throw new Error(
-            `Ce produit n'a pas de poids de ${businessConfig.unit.baseSingularLower} configuré, vente en ${businessConfig.unit.bulkLabel.toLowerCase()}s impossible.`,
-          )
-        }
-        // Unlike BGM's flour (kg -> tonne, a universal physical ratio handled by dividing total
-        // weight by per-sack weight), BILMS's bulk unit (carton) holds a variable, per-product
-        // piece count — `sackWeightKg` stores that count, not a weight. So the bulk quantity
-        // entered (number of cartons) is multiplied by pieces-per-carton, not divided by it.
-        const tonnage = item.tonnage ?? 0
-        const quantity = Math.round(tonnage * product.sackWeightKg * businessConfig.unit.bulkConversionFactor)
-        return { ...item, quantity, unit: 'tonne' as const, tonnage }
-      }
-      return { ...item, unit: 'sack' as const, tonnage: null }
-    })
+    // Unit is a fixed property of the product (set at creation), not chosen per sale — no
+    // conversion math, the quantity entered is a direct count in that unit.
+    const items = input.items.map((item) => ({
+      ...item,
+      unit: productMap.get(item.productId)?.unit ?? 'sack',
+      tonnage: null,
+    }))
 
     for (const item of items) {
       const available = await getQuantity(tx, item.productId, input.storeId)
@@ -69,6 +58,7 @@ export async function createSale(input: {
         totalAmount,
         costAmount,
         paymentStatus: input.paymentStatus,
+        saleDate: input.saleDate ?? null,
       })
       .returning()
 

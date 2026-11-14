@@ -8,7 +8,6 @@ import { downloadCsv } from '@/lib/download-csv'
 import { fetchJson } from '@/lib/fetch-json'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
-import { businessConfig } from '@/lib/business-config'
 import { authClient } from '@/lib/auth-client'
 
 type StockItem = {
@@ -54,7 +53,7 @@ function NewProductForm({ storeOptions, onCreated }: { storeOptions: StoreOption
   const [reorderThreshold, setReorderThreshold] = useState('10')
   const [storeId, setStoreId] = useState('')
   const [initialQuantity, setInitialQuantity] = useState('0')
-  const [sackWeightKg, setSackWeightKg] = useState('')
+  const [unit, setUnit] = useState<'sack' | 'carton'>('sack')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -70,7 +69,7 @@ function NewProductForm({ storeOptions, onCreated }: { storeOptions: StoreOption
       const res = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, sku, category, unitPrice, costPrice, reorderThreshold, storeId, initialQuantity, sackWeightKg: sackWeightKg || null }),
+        body: JSON.stringify({ name, sku, category, unitPrice, costPrice, reorderThreshold, storeId, initialQuantity, unit }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -102,8 +101,15 @@ function NewProductForm({ storeOptions, onCreated }: { storeOptions: StoreOption
         <div className="form-field"><label>Quantité initiale</label><input required type="number" min="0" value={initialQuantity} onChange={(event) => setInitialQuantity(event.target.value)} /></div>
       </div>
       <div className="form-field">
-        <label>Poids du {businessConfig.unit.baseSingularLower} (kg, optionnel)</label>
-        <input type="number" min="0" step="0.1" placeholder="Ex : 25" value={sackWeightKg} onChange={(event) => setSackWeightKg(event.target.value)} />
+        <label>Unité de vente</label>
+        <div style={{ display: 'flex', gap: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="radio" name="product-unit" checked={unit === 'sack'} onChange={() => setUnit('sack')} /> Sac
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="radio" name="product-unit" checked={unit === 'carton'} onChange={() => setUnit('carton')} /> Carton
+          </label>
+        </div>
       </div>
       <div className="form-field">
         <label>Magasin de départ</label>

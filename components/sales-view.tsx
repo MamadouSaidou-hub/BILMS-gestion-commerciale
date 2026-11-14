@@ -29,8 +29,10 @@ type SalesData = {
 
 type StoreOption = { id: number; name: string }
 type ClientOption = { id: number; name: string }
-type ProductOption = { id: number; name: string; sku: string; unitPrice: number; sackWeightKg: number | null }
-type ItemRow = { productId: string; quantity: string; unitPrice: string; unit: 'sack' | 'tonne'; tonnage: string }
+type ProductOption = { id: number; name: string; sku: string; unitPrice: number; sackWeightKg: number | null; unit: 'sack' | 'carton' }
+type ItemRow = { productId: string; quantity: string; unitPrice: string }
+
+const unitLabel = { sack: 'Sac', carton: 'Carton' }
 
 const statusLabel = { paid: 'Payée', partial: 'Partielle', credit: 'Crédit' }
 const statusBadge = { paid: 'badge-green', partial: 'badge-orange', credit: 'badge-blue' }
@@ -87,7 +89,8 @@ function NewSaleForm({
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'partial' | 'credit'>('paid')
   const [paidNow, setPaidNow] = useState('')
   const [dueInDays, setDueInDays] = useState('15')
-  const [items, setItems] = useState<ItemRow[]>([{ productId: '', quantity: '1', unitPrice: '', unit: 'sack', tonnage: '' }])
+  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [items, setItems] = useState<ItemRow[]>([{ productId: '', quantity: '1', unitPrice: '' }])
   const [scanCode, setScanCode] = useState('')
   const [scanError, setScanError] = useState('')
   const [scanFeedback, setScanFeedback] = useState<'success' | 'error' | null>(null)
@@ -102,16 +105,7 @@ function NewSaleForm({
 
   const productMap = useMemo(() => new Map(productOptions.map((product) => [String(product.id), product])), [productOptions])
 
-  function effectiveSacks(item: ItemRow) {
-    if (item.unit === 'tonne') {
-      const product = productMap.get(item.productId)
-      if (!product?.sackWeightKg) return 0
-      return Math.round((Number(item.tonnage) || 0) * product.sackWeightKg * businessConfig.unit.bulkConversionFactor)
-    }
-    return Number(item.quantity) || 0
-  }
-
-  const total = items.reduce((sum, item) => sum + effectiveSacks(item) * (Number(item.unitPrice) || 0), 0)
+  const total = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0)
 
   function updateItem(index: number, patch: Partial<ItemRow>) {
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -119,11 +113,11 @@ function NewSaleForm({
 
   function handleProductChange(index: number, productId: string) {
     const product = productMap.get(productId)
-    updateItem(index, { productId, unitPrice: product ? String(product.unitPrice) : '', unit: 'sack', tonnage: '' })
+    updateItem(index, { productId, unitPrice: product ? String(product.unitPrice) : '' })
   }
 
   function addItem() {
-    setItems((rows) => [...rows, { productId: '', quantity: '1', unitPrice: '', unit: 'sack', tonnage: '' }])
+    setItems((rows) => [...rows, { productId: '', quantity: '1', unitPrice: '' }])
   }
 
   function flashScanFeedback(kind: 'success' | 'error') {
@@ -164,11 +158,11 @@ function NewSaleForm({
     scanInputRef.current?.focus()
 
     setItems((rows) => {
-      const sackRowIndex = rows.findIndex((row) => row.productId === String(product.id) && row.unit === 'sack')
-      if (sackRowIndex !== -1) {
-        return rows.map((row, i) => (i === sackRowIndex ? { ...row, quantity: String((Number(row.quantity) || 0) + 1) } : row))
+      const existingRowIndex = rows.findIndex((row) => row.productId === String(product.id))
+      if (existingRowIndex !== -1) {
+        return rows.map((row, i) => (i === existingRowIndex ? { ...row, quantity: String((Number(row.quantity) || 0) + 1) } : row))
       }
-      const scannedRow: ItemRow = { productId: String(product.id), quantity: '1', unitPrice: String(product.unitPrice), unit: 'sack', tonnage: '' }
+      const scannedRow: ItemRow = { productId: String(product.id), quantity: '1', unitPrice: String(product.unitPrice) }
       const emptyRowIndex = rows.findIndex((row) => !row.productId)
       if (emptyRowIndex !== -1) {
         return rows.map((row, i) => (i === emptyRowIndex ? scannedRow : row))
@@ -199,12 +193,11 @@ function NewSaleForm({
           paymentStatus,
           paidNow: paymentStatus === 'partial' ? paidNow : 0,
           dueInDays,
+          saleDate,
           items: items.map((item) => ({
             productId: item.productId,
-            quantity: item.unit === 'tonne' ? effectiveSacks(item) : item.quantity,
+            quantity: item.quantity,
             unitPrice: item.unitPrice,
-            unit: item.unit,
-            tonnage: item.unit === 'tonne' ? item.tonnage : undefined,
           })),
         }),
       })
@@ -236,6 +229,10 @@ function NewSaleForm({
             {clientOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
           </select>
         </div>
+        <div className="form-field">
+          <label>Date de la vente</label>
+          <input type="date" value={saleDate} onChange={(event) => setSaleDate(event.target.value)} />
+        </div>
       </div>
 
       <div className="form-field">
@@ -260,7 +257,6 @@ function NewSaleForm({
       <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Articles</label>
       {items.map((item, index) => {
         const product = productMap.get(item.productId)
-        const canUseTonne = Boolean(product?.sackWeightKg)
         return (
           <div key={index} style={{ marginBottom: 10 }}>
             <div className="item-row-grid">
@@ -270,39 +266,18 @@ function NewSaleForm({
                   {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
                 </select>
               </div>
-              {item.unit === 'tonne' ? (
-                <div className="form-field" style={{ marginBottom: 0 }}>
-                  <input required type="number" min="0.01" step="0.01" placeholder={`Qté (${businessConfig.unit.bulkLabel.toLowerCase()}s)`} value={item.tonnage} onChange={(event) => updateItem(index, { tonnage: event.target.value })} />
-                </div>
-              ) : (
-                <div className="form-field" style={{ marginBottom: 0 }}>
-                  <input required type="number" min="1" placeholder={`Qté (${businessConfig.unit.basePluralLower})`} value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} />
-                </div>
-              )}
+              <div className="form-field" style={{ marginBottom: 0 }}>
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  placeholder={`Qté${product ? ` (${unitLabel[product.unit]})` : ''}`}
+                  value={item.quantity}
+                  onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                />
+              </div>
               <div className="form-field" style={{ marginBottom: 0 }}><input required type="number" min="0" placeholder="Prix" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} /></div>
               <button type="button" className="item-row-remove" onClick={() => removeItem(index)} disabled={items.length === 1} aria-label="Retirer la ligne"><Trash2 size={14} /></button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
-                <input
-                  type="radio"
-                  name={`unit-${index}`}
-                  checked={item.unit === 'sack'}
-                  onChange={() => updateItem(index, { unit: 'sack', tonnage: '' })}
-                /> {businessConfig.unit.baseSingular}
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: canUseTonne ? 'var(--muted)' : 'var(--muted-light, #ccc)' }}>
-                <input
-                  type="radio"
-                  name={`unit-${index}`}
-                  disabled={!canUseTonne}
-                  checked={item.unit === 'tonne'}
-                  onChange={() => updateItem(index, { unit: 'tonne', quantity: '' })}
-                /> {businessConfig.unit.bulkLabel}
-              </label>
-              {item.unit === 'tonne' && (
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>≈ {effectiveSacks(item)} {businessConfig.unit.baseSingularLower}(s)</span>
-              )}
             </div>
           </div>
         )

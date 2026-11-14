@@ -9,7 +9,7 @@ const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 let storeId: number
 let clientId: number
 let sackProductId: number
-let tonneProductId: number
+let cartonProductId: number
 const saleIds: number[] = []
 
 async function stockOf(productId: number) {
@@ -25,19 +25,19 @@ beforeAll(async () => {
 
   const [sackProduct] = await db
     .insert(products)
-    .values({ name: `Produit pièce ${runId}`, sku: `SKU-SACK-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800 })
+    .values({ name: `Produit sac ${runId}`, sku: `SKU-SACK-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800, unit: 'sack' })
     .returning()
   sackProductId = sackProduct.id
 
-  const [tonneProduct] = await db
+  const [cartonProduct] = await db
     .insert(products)
-    .values({ name: `Produit carton ${runId}`, sku: `SKU-TONNE-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800, sackWeightKg: 25 })
+    .values({ name: `Produit carton ${runId}`, sku: `SKU-CARTON-${runId}`, category: 'Test', unitPrice: 1000, costPrice: 800, unit: 'carton' })
     .returning()
-  tonneProductId = tonneProduct.id
+  cartonProductId = cartonProduct.id
 
   await db.insert(stockLevels).values([
     { productId: sackProductId, storeId, quantity: 100 },
-    { productId: tonneProductId, storeId, quantity: 100 },
+    { productId: cartonProductId, storeId, quantity: 100 },
   ])
 })
 
@@ -51,7 +51,7 @@ afterAll(async () => {
   await db.delete(stockMovements).where(eq(stockMovements.storeId, storeId))
   await db.delete(stockLevels).where(eq(stockLevels.storeId, storeId))
   await db.delete(products).where(eq(products.id, sackProductId))
-  await db.delete(products).where(eq(products.id, tonneProductId))
+  await db.delete(products).where(eq(products.id, cartonProductId))
   await db.delete(clients).where(eq(clients.id, clientId))
   await db.delete(stores).where(eq(stores.id, storeId))
 })
@@ -104,35 +104,61 @@ describe('createSale', () => {
     expect(await stockOf(sackProductId)).toBe(before)
   })
 
-  it('converts a tonne-unit sale to the correct sack count', async () => {
-    const before = await stockOf(tonneProductId)
+  it('derives the sale item unit from the product, not from caller input', async () => {
+    const before = await stockOf(cartonProductId)
     const sale = await createSale({
       storeId,
       clientId: null,
       paymentStatus: 'paid',
       paidNow: 0,
       dueInDays: 15,
-      items: [{ productId: tonneProductId, quantity: 0, unitPrice: 1000, unit: 'tonne', tonnage: 4 }], // 4 cartons x 25 pieces/carton = 100 pieces
+      items: [{ productId: cartonProductId, quantity: 4, unitPrice: 1000 }],
     })
     saleIds.push(sale.id)
 
     const [item] = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id))
-    expect(item.quantity).toBe(100)
-    expect(item.unit).toBe('tonne')
-    expect(item.tonnage).toBe(4)
-    expect(await stockOf(tonneProductId)).toBe(before - 100)
+    expect(item.quantity).toBe(4)
+    expect(item.unit).toBe('carton')
+    expect(await stockOf(cartonProductId)).toBe(before - 4)
   })
 
-  it('rejects a tonne-unit sale for a product with no configured sack weight', async () => {
-    await expect(
-      createSale({
-        storeId,
-        clientId: null,
-        paymentStatus: 'paid',
-        paidNow: 0,
-        dueInDays: 15,
-        items: [{ productId: sackProductId, quantity: 0, unitPrice: 1000, unit: 'tonne', tonnage: 1 }],
-      }),
-    ).rejects.toThrow(/poids de pièce/i)
+  it('keeps the sack unit for a sack product', async () => {
+    const sale = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 2, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+
+    const [item] = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id))
+    expect(item.unit).toBe('sack')
+  })
+
+  it('stores an explicit saleDate when provided, defaulting to null otherwise', async () => {
+    const saleWithDate = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 15,
+      saleDate: '2026-01-15',
+      items: [{ productId: sackProductId, quantity: 1, unitPrice: 1000 }],
+    })
+    saleIds.push(saleWithDate.id)
+    expect(saleWithDate.saleDate).toBe('2026-01-15')
+
+    const saleWithoutDate = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 15,
+      items: [{ productId: sackProductId, quantity: 1, unitPrice: 1000 }],
+    })
+    saleIds.push(saleWithoutDate.id)
+    expect(saleWithoutDate.saleDate).toBeNull()
   })
 })

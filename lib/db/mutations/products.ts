@@ -51,6 +51,7 @@ export async function createProduct(input: {
   storeId: number
   initialQuantity: number
   sackWeightKg?: number | null
+  unit?: 'sack' | 'carton'
 }) {
   const [product] = await db
     .insert(products)
@@ -62,6 +63,7 @@ export async function createProduct(input: {
       costPrice: input.costPrice,
       reorderThreshold: input.reorderThreshold,
       sackWeightKg: input.sackWeightKg ?? null,
+      unit: input.unit ?? 'sack',
     })
     .returning()
 
@@ -96,6 +98,7 @@ export type BulkImportRow = {
   initialQuantity?: number
   reorderThreshold?: number
   sackWeightKg?: number
+  unit?: 'sack' | 'carton'
 }
 
 /** Imports many products in one transaction, isolating failures per row instead of letting one bad
@@ -150,6 +153,7 @@ export async function bulkImportProducts(input: { storeId: number; rows: BulkImp
               costPrice: row.costPrice,
               reorderThreshold: row.reorderThreshold ?? 10,
               sackWeightKg: row.sackWeightKg ?? null,
+              unit: row.unit ?? 'sack',
             })
             .returning()
 

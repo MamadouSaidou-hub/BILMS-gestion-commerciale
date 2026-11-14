@@ -3,7 +3,9 @@ import { clients, payments, receivables, stores } from '../schema'
 import { formatFcfa, isPastDue } from '@/lib/format'
 
 export async function getClientsOverview(storeId: number | null = null) {
-  const allClientRows = await db.select({ id: clients.id, name: clients.name, phone: clients.phone, storeId: clients.storeId }).from(clients)
+  const allClientRows = await db
+    .select({ id: clients.id, name: clients.name, phone: clients.phone, storeId: clients.storeId, zone: clients.zone, reference: clients.reference })
+    .from(clients)
   const clientRows = storeId ? allClientRows.filter((row) => row.storeId === storeId) : allClientRows
   const storeRows = await db.select({ id: stores.id, name: stores.name }).from(stores)
   const storeMap = new Map(storeRows.map((row) => [row.id, row.name]))
@@ -24,6 +26,8 @@ export async function getClientsOverview(storeId: number | null = null) {
       id: client.id,
       name: client.name,
       phone: client.phone ?? '—',
+      zone: client.zone ?? '—',
+      reference: client.reference ?? '—',
       storeId: client.storeId,
       store: client.storeId ? storeMap.get(client.storeId) ?? '—' : '—',
       outstanding: formatFcfa(outstanding),

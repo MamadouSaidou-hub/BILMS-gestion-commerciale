@@ -13,7 +13,16 @@ export async function GET() {
   // delivery forms) only ever needs id/name/sku/unitPrice/sackWeightKg, and a gestionnaire isn't
   // meant to see cost price or derive margin from it.
   const rows = await db
-    .select({ id: products.id, name: products.name, sku: products.sku, category: products.category, unitPrice: products.unitPrice, reorderThreshold: products.reorderThreshold, sackWeightKg: products.sackWeightKg })
+    .select({
+      id: products.id,
+      name: products.name,
+      sku: products.sku,
+      category: products.category,
+      unitPrice: products.unitPrice,
+      reorderThreshold: products.reorderThreshold,
+      sackWeightKg: products.sackWeightKg,
+      unit: products.unit,
+    })
     .from(products)
     .orderBy(products.name)
   return NextResponse.json({ products: rows })
@@ -47,6 +56,7 @@ export async function POST(request: NextRequest) {
       storeId,
       initialQuantity: Number(body.initialQuantity ?? 0),
       sackWeightKg: body.sackWeightKg !== undefined && body.sackWeightKg !== null && body.sackWeightKg !== '' ? Number(body.sackWeightKg) : null,
+      unit: body.unit === 'carton' ? 'carton' : 'sack',
     })
     return NextResponse.json({ product }, { status: 201 })
   } catch (error) {

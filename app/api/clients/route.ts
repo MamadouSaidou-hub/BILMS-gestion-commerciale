@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
       [
         { key: 'name', label: 'Client' },
         { key: 'phone', label: 'Téléphone' },
+        { key: 'zone', label: 'Zone' },
         { key: 'store', label: 'Magasin' },
         { key: 'totalPaid', label: 'Encaissé au total' },
         { key: 'outstanding', label: 'Créance en cours' },
@@ -51,6 +52,8 @@ export async function POST(request: NextRequest) {
       name,
       phone: body.phone ? String(body.phone).trim() : undefined,
       storeId,
+      zone: body.zone ? String(body.zone).trim() : null,
+      reference: body.reference ? String(body.reference).trim() : null,
     })
     return NextResponse.json({ client }, { status: 201 })
   } catch (error) {
