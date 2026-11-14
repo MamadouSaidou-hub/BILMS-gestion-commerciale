@@ -32,12 +32,21 @@ export async function createRental(input: {
   // Lets the admin price this specific trip differently from the vehicle's standing rate (e.g. a
   // longer/farther route) instead of always inheriting `vehicle.dailyRate`.
   dailyRateOverride?: number
+  // Purely informational trip record — see schema.ts's comment on these columns.
+  departureCity?: string | null
+  destinationCity?: string | null
+  // Extra invoice lines (fuel, road fees...) entered at booking time instead of only afterward via
+  // addRentalCharge — same shape, just inserted inside this same transaction.
+  charges?: { description: string; unit?: string | null; quantity: number; unitPrice: number }[]
 }) {
   if (input.days <= 0) {
     throw new Error('La durée de location doit être supérieure à zéro.')
   }
   if (input.dailyRateOverride !== undefined && input.dailyRateOverride <= 0) {
     throw new Error('Le tarif journalier doit être supérieur à zéro.')
+  }
+  if (input.charges?.some((charge) => charge.quantity <= 0 || charge.unitPrice <= 0)) {
+    throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')
   }
 
   return db.transaction(async (tx) => {
@@ -80,10 +89,24 @@ export async function createRental(input: {
         plannedEndDate: addDays(input.startDate, input.days),
         dailyRate,
         totalAmount,
+        departureCity: input.departureCity ?? null,
+        destinationCity: input.destinationCity ?? null,
       })
       .returning()
 
     await tx.update(vehicles).set({ status: 'rented' }).where(eq(vehicles.id, input.vehicleId))
+
+    if (input.charges && input.charges.length > 0) {
+      await tx.insert(rentalCharges).values(
+        input.charges.map((charge) => ({
+          rentalId: rental.id,
+          description: charge.description,
+          unit: charge.unit ?? null,
+          quantity: charge.quantity,
+          unitPrice: charge.unitPrice,
+        })),
+      )
+    }
 
     return rental
   })
@@ -196,7 +219,7 @@ export async function recordRentalPayment(rentalId: number, amount: number) {
 
 export async function updateRental(
   rentalId: number,
-  input: { startDate?: string; days?: number; dailyRateOverride?: number; notes?: string | null },
+  input: { startDate?: string; days?: number; dailyRateOverride?: number; notes?: string | null; departureCity?: string | null; destinationCity?: string | null },
   actor: Actor,
   reason?: string,
 ) {
@@ -231,6 +254,8 @@ export async function updateRental(
         totalAmount,
         paymentStatus,
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        ...(input.departureCity !== undefined ? { departureCity: input.departureCity } : {}),
+        ...(input.destinationCity !== undefined ? { destinationCity: input.destinationCity } : {}),
       })
       .where(eq(vehicleRentals.id, rentalId))
       .returning()

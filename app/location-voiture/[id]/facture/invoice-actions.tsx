@@ -31,6 +31,8 @@ type RentalDetail = {
   dailyRateFormatted: string
   totalAmount: number
   totalAmountFormatted: string
+  departureCity: string | null
+  destinationCity: string | null
   charges: RentalCharge[]
   grandTotal: number
   grandTotalFormatted: string
@@ -53,7 +55,12 @@ async function buildInvoicePdf(rental: RentalDetail) {
   autoTable(doc, {
     startY: Math.max(44, headerBottomY + 8),
     body: [
-      [`Véhicule\n${rental.vehicleName}\n${rental.vehiclePlate}`, `Client\n${rental.clientName}${rental.clientPhone ? `\n${rental.clientPhone}` : ''}`],
+      [
+        `Véhicule\n${rental.vehicleName}\n${rental.vehiclePlate}`,
+        rental.departureCity || rental.destinationCity
+          ? `Client\n${rental.clientName}${rental.clientPhone ? `\n${rental.clientPhone}` : ''}\n\nTrajet\n${rental.departureCity ?? '—'} → ${rental.destinationCity ?? '—'}`
+          : `Client\n${rental.clientName}${rental.clientPhone ? `\n${rental.clientPhone}` : ''}`,
+      ],
     ],
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },

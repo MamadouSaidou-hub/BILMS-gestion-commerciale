@@ -432,6 +432,10 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
   // return), which is the point of keeping them separate.
   plannedEndDate: text('planned_end_date').notNull(),
   endDate: text('end_date'),
+  // Free-text trip record — purely informational (shown on the rental/invoice), no effect on
+  // pricing: the daily rate stays a manual override per booking, not a route-based rate table.
+  departureCity: text('departure_city'),
+  destinationCity: text('destination_city'),
   // Snapshot of the vehicle's rate at booking time — later rate changes on the vehicle shouldn't
   // silently change the price of an existing rental.
   dailyRate: doublePrecision('daily_rate').notNull(),

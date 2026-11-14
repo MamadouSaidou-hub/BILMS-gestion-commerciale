@@ -18,6 +18,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const days = Number(body.days)
   const dailyRateOverride =
     body.dailyRateOverride !== undefined && body.dailyRateOverride !== null && body.dailyRateOverride !== '' ? Number(body.dailyRateOverride) : undefined
+  const departureCity = body.departureCity ? String(body.departureCity).trim() : null
+  const destinationCity = body.destinationCity ? String(body.destinationCity).trim() : null
+  const charges = Array.isArray(body.charges)
+    ? body.charges.map((charge: { description: unknown; unit: unknown; quantity: unknown; unitPrice: unknown }) => ({
+        description: String(charge.description ?? '').trim(),
+        unit: charge.unit ? String(charge.unit).trim() : null,
+        quantity: Number(charge.quantity),
+        unitPrice: Number(charge.unitPrice),
+      }))
+    : []
+
+  if (
+    charges.some(
+      (charge: { description: string; quantity: number; unitPrice: number }) =>
+        !charge.description || !Number.isFinite(charge.quantity) || charge.quantity <= 0 || !Number.isFinite(charge.unitPrice) || charge.unitPrice <= 0,
+    )
+  ) {
+    return NextResponse.json({ error: 'Lignes de frais invalides.' }, { status: 400 })
+  }
 
   if (
     !Number.isFinite(vehicleId) ||
@@ -39,6 +58,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       startDate,
       days,
       dailyRateOverride,
+      departureCity,
+      destinationCity,
+      charges,
     })
     return NextResponse.json({ rental }, { status: 201 })
   } catch (error) {

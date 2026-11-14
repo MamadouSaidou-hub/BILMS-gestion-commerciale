@@ -31,6 +31,8 @@ export async function getVehiclesOverview() {
     paymentStatus: rental.paymentStatus,
     status: rental.status,
     notes: rental.notes,
+    departureCity: rental.departureCity,
+    destinationCity: rental.destinationCity,
   }))
 
   const totalCollected = rentals.reduce((sum, rental) => sum + rental.amountPaid, 0)
@@ -247,6 +249,8 @@ export async function getRentalDetail(rentalId: number) {
     dailyRateFormatted: formatFcfa(rental.dailyRate),
     totalAmount: rental.totalAmount,
     totalAmountFormatted: formatFcfa(rental.totalAmount),
+    departureCity: rental.departureCity,
+    destinationCity: rental.destinationCity,
     charges,
     grandTotal,
     grandTotalFormatted: formatFcfa(grandTotal),

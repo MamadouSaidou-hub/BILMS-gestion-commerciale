@@ -29,6 +29,8 @@ type Rental = {
   paymentStatus: 'paid' | 'partial' | 'unpaid'
   status: 'active' | 'completed' | 'cancelled'
   notes: string | null
+  departureCity: string | null
+  destinationCity: string | null
 }
 type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amountFormatted: string; notes: string | null }
 type RentalClientOption = { id: number; name: string; phone: string }
@@ -102,6 +104,8 @@ function NewVehicleForm({ onCreated }: { onCreated: () => void }) {
   )
 }
 
+type ChargeRow = { description: string; unit: string; quantity: string; unitPrice: string }
+
 function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle; clientOptions: RentalClientOption[]; onCreated: () => void }) {
   const [creatingClient, setCreatingClient] = useState(clientOptions.length === 0)
   const [clientId, setClientId] = useState('')
@@ -110,8 +114,23 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [days, setDays] = useState('1')
   const [dailyRate, setDailyRate] = useState(String(vehicle.dailyRate))
+  const [departureCity, setDepartureCity] = useState('')
+  const [destinationCity, setDestinationCity] = useState('')
+  const [charges, setCharges] = useState<ChargeRow[]>([])
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  function addChargeRow() {
+    setCharges((rows) => [...rows, { description: '', unit: '', quantity: '1', unitPrice: '' }])
+  }
+
+  function updateChargeRow(index: number, patch: Partial<ChargeRow>) {
+    setCharges((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+
+  function removeChargeRow(index: number) {
+    setCharges((rows) => rows.filter((_, i) => i !== index))
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -123,12 +142,11 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
     setSubmitting(true)
     try {
       const dailyRateOverride = Number(dailyRate) !== vehicle.dailyRate ? dailyRate : undefined
+      const commonFields = { startDate, days, dailyRateOverride, departureCity, destinationCity, charges }
       const res = await fetch(`/api/vehicules/${vehicle.id}/locations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          creatingClient ? { clientName, clientPhone, startDate, days, dailyRateOverride } : { clientId, startDate, days, dailyRateOverride },
-        ),
+        body: JSON.stringify(creatingClient ? { clientName, clientPhone, ...commonFields } : { clientId, ...commonFields }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -176,6 +194,27 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
         <label>Tarif journalier pour cette location (GNF)</label>
         <input required type="number" min="1" value={dailyRate} onChange={(event) => setDailyRate(event.target.value)} />
       </div>
+      <div className="form-row">
+        <div className="form-field"><label>Ville de départ (optionnel)</label><input value={departureCity} onChange={(event) => setDepartureCity(event.target.value)} /></div>
+        <div className="form-field"><label>Ville d’arrivée (optionnel)</label><input value={destinationCity} onChange={(event) => setDestinationCity(event.target.value)} /></div>
+      </div>
+
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Frais additionnels (optionnel)</label>
+      {charges.map((charge, index) => (
+        <div key={index} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
+          <div className="form-row">
+            <div className="form-field"><input required placeholder="Ex : Carburant" value={charge.description} onChange={(event) => updateChargeRow(index, { description: event.target.value })} /></div>
+            <button type="button" className="item-row-remove" onClick={() => removeChargeRow(index)} aria-label="Retirer la ligne"><Trash2 size={14} /></button>
+          </div>
+          <div className="item-row-grid">
+            <div className="form-field" style={{ marginBottom: 0 }}><input placeholder="Unité (ex : litres)" value={charge.unit} onChange={(event) => updateChargeRow(index, { unit: event.target.value })} /></div>
+            <div className="form-field" style={{ marginBottom: 0 }}><input required type="number" min="0.01" step="0.01" placeholder="Qté" value={charge.quantity} onChange={(event) => updateChargeRow(index, { quantity: event.target.value })} /></div>
+            <div className="form-field" style={{ marginBottom: 0 }}><input required type="number" min="1" placeholder="Prix unitaire" value={charge.unitPrice} onChange={(event) => updateChargeRow(index, { unitPrice: event.target.value })} /></div>
+          </div>
+        </div>
+      ))}
+      <button type="button" className="item-add-link" onClick={addChargeRow}><Plus size={13} /> Ajouter des frais (carburant, route...)</button>
+
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer la location'}</button></div>
     </form>
   )
@@ -349,6 +388,8 @@ function EditRentalForm({ rental, onSaved }: { rental: Rental; onSaved: () => vo
   const [days, setDays] = useState(String(rental.days))
   const [dailyRate, setDailyRate] = useState(String(rental.dailyRate))
   const [notes, setNotes] = useState(rental.notes ?? '')
+  const [departureCity, setDepartureCity] = useState(rental.departureCity ?? '')
+  const [destinationCity, setDestinationCity] = useState(rental.destinationCity ?? '')
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -361,7 +402,7 @@ function EditRentalForm({ rental, onSaved }: { rental: Rental; onSaved: () => vo
       const res = await fetch(`/api/locations-voiture/${rental.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate, days, dailyRateOverride: dailyRate, notes, reason: reason || undefined }),
+        body: JSON.stringify({ startDate, days, dailyRateOverride: dailyRate, notes, departureCity, destinationCity, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -385,6 +426,10 @@ function EditRentalForm({ rental, onSaved }: { rental: Rental; onSaved: () => vo
         <div className="form-field"><label>Durée (jours)</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
       </div>
       <div className="form-field"><label>Tarif journalier (GNF)</label><input required type="number" min="1" value={dailyRate} onChange={(event) => setDailyRate(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Ville de départ (optionnel)</label><input value={departureCity} onChange={(event) => setDepartureCity(event.target.value)} /></div>
+        <div className="form-field"><label>Ville d’arrivée (optionnel)</label><input value={destinationCity} onChange={(event) => setDestinationCity(event.target.value)} /></div>
+      </div>
       <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
@@ -588,13 +633,14 @@ export function LocationVoitureView() {
         <div className="table-scroll">
           <table className="data-table">
             <thead>
-              <tr><th>Véhicule</th><th>Client</th><th>Début</th><th>Fin prévue</th><th>Retour réel</th><th>Montant</th><th>Paiement</th><th></th></tr>
+              <tr><th>Véhicule</th><th>Client</th><th>Trajet</th><th>Début</th><th>Fin prévue</th><th>Retour réel</th><th>Montant</th><th>Paiement</th><th></th></tr>
             </thead>
             <tbody>
               {(data?.rentals ?? []).map((rental) => (
                 <tr key={rental.id}>
                   <td data-label="Véhicule">{rental.vehicleName}</td>
                   <td data-label="Client"><Link href={`/location-voiture/clients/${rental.clientId}`}>{rental.clientName}</Link></td>
+                  <td data-label="Trajet">{rental.departureCity || rental.destinationCity ? `${rental.departureCity ?? '—'} → ${rental.destinationCity ?? '—'}` : '—'}</td>
                   <td data-label="Début">{rental.startDate}</td>
                   <td data-label="Fin prévue">{rental.plannedEndDate}</td>
                   <td data-label="Retour réel">{rental.endDate ?? '—'}</td>

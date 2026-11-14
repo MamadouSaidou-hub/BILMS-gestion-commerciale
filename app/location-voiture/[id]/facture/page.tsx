@@ -67,6 +67,12 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               <p style={{ fontSize: 12.5, fontWeight: 700, margin: 0 }}>{rental.clientName}</p>
               {rental.clientPhone && <p style={{ fontSize: 11, color: MUTED, margin: '2px 0 0' }}>{rental.clientPhone}</p>}
             </div>
+            {(rental.departureCity || rental.destinationCity) && (
+              <div className="invoice-party">
+                <p style={{ fontSize: 9, fontWeight: 700, color: MUTED, letterSpacing: '.08em', textTransform: 'uppercase', margin: '0 0 6px' }}>Trajet</p>
+                <p style={{ fontSize: 12.5, fontWeight: 700, margin: 0 }}>{rental.departureCity ?? '—'} → {rental.destinationCity ?? '—'}</p>
+              </div>
+            )}
           </div>
         </div>
 

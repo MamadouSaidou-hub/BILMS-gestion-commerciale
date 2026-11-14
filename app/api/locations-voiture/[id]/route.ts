@@ -18,6 +18,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const dailyRateOverride =
     body.dailyRateOverride !== undefined && body.dailyRateOverride !== null && body.dailyRateOverride !== '' ? Number(body.dailyRateOverride) : undefined
   const notes = body.notes !== undefined ? (body.notes ? String(body.notes).trim() : null) : undefined
+  const departureCity = body.departureCity !== undefined ? (body.departureCity ? String(body.departureCity).trim() : null) : undefined
+  const destinationCity = body.destinationCity !== undefined ? (body.destinationCity ? String(body.destinationCity).trim() : null) : undefined
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
 
   if ((days !== undefined && !Number.isFinite(days)) || (dailyRateOverride !== undefined && !Number.isFinite(dailyRateOverride))) {
@@ -25,7 +27,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   try {
-    const rental = await updateRental(rentalId, { startDate, days, dailyRateOverride, notes }, { userId: ctx.userId, userName: ctx.userName }, reason)
+    const rental = await updateRental(
+      rentalId,
+      { startDate, days, dailyRateOverride, notes, departureCity, destinationCity },
+      { userId: ctx.userId, userName: ctx.userName },
+      reason,
+    )
     return NextResponse.json({ rental })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

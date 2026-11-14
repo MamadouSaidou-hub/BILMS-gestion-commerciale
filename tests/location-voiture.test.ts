@@ -113,6 +113,50 @@ describe('createRental', () => {
     rentalIds.push(rental.id)
     expect(rental.dailyRate).toBe(10000)
   })
+
+  it('stores an optional departure/destination trip record', async () => {
+    const vehicle = await makeVehicle('Q')
+    const rental = await createRental({
+      vehicleId: vehicle.id,
+      clientName: 'Client Trajet Ville',
+      startDate: '2026-11-01',
+      days: 1,
+      departureCity: 'Conakry',
+      destinationCity: 'Kindia',
+    })
+    rentalIds.push(rental.id)
+    expect(rental.departureCity).toBe('Conakry')
+    expect(rental.destinationCity).toBe('Kindia')
+  })
+
+  it('inserts charge lines given at booking time, included in getRentalDetail.grandTotal', async () => {
+    const vehicle = await makeVehicle('R', 10000)
+    const rental = await createRental({
+      vehicleId: vehicle.id,
+      clientName: 'Client Frais Initiaux',
+      startDate: '2026-11-01',
+      days: 1,
+      charges: [{ description: 'Carburant', unit: 'litres', quantity: 10, unitPrice: 12000 }],
+    })
+    rentalIds.push(rental.id)
+
+    const detail = await getRentalDetail(rental.id)
+    expect(detail?.charges).toHaveLength(1)
+    expect(detail?.grandTotal).toBe(10000 + 10 * 12000)
+  })
+
+  it('rejects an invalid charge line given at booking time', async () => {
+    const vehicle = await makeVehicle('S')
+    await expect(
+      createRental({
+        vehicleId: vehicle.id,
+        clientName: 'Client Frais Invalides',
+        startDate: '2026-11-01',
+        days: 1,
+        charges: [{ description: 'Carburant', quantity: 0, unitPrice: 1000 }],
+      }),
+    ).rejects.toThrow(/supérieurs à zéro/i)
+  })
 })
 
 describe('addRentalCharge / removeRentalCharge', () => {
