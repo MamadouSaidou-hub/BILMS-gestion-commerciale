@@ -28,6 +28,8 @@ export {
   createLease,
   endLease,
   recordRentPayment,
+  updateRentPayment,
+  deleteRentPayment,
   renewLease,
   updateLeaseRent,
   updateLeaseContractTerms,

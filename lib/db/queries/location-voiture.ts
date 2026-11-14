@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { formatFcfa } from '@/lib/format'
@@ -7,7 +7,7 @@ import { periodRange, type PeriodKey } from '@/lib/period'
 
 export async function getVehiclesOverview() {
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
-  const rentalRows = await db.select().from(vehicleRentals).orderBy(desc(vehicleRentals.createdAt))
+  const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt)).orderBy(desc(vehicleRentals.createdAt))
   const expenseRows = await db.select().from(vehicleExpenses).orderBy(desc(vehicleExpenses.date))
 
   const rentals = rentalRows.map((rental) => ({
@@ -21,12 +21,16 @@ export async function getVehiclesOverview() {
     plannedEndDate: rental.plannedEndDate,
     endDate: rental.endDate,
     daysRemaining: rental.status === 'active' ? daysUntil(rental.plannedEndDate) : null,
+    days: Math.max(1, Math.round((new Date(rental.plannedEndDate).getTime() - new Date(rental.startDate).getTime()) / (24 * 60 * 60 * 1000))),
+    dailyRate: rental.dailyRate,
+    dailyRateFormatted: formatFcfa(rental.dailyRate),
     totalAmount: rental.totalAmount,
     totalAmountFormatted: formatFcfa(rental.totalAmount),
     amountPaid: rental.amountPaid,
     amountPaidFormatted: formatFcfa(rental.amountPaid),
     paymentStatus: rental.paymentStatus,
     status: rental.status,
+    notes: rental.notes,
   }))
 
   const totalCollected = rentals.reduce((sum, rental) => sum + rental.amountPaid, 0)
@@ -76,7 +80,7 @@ export async function getVehiclesOverview() {
 // upcomingDeadlines, but standalone (rentals + vehicles only) so the global notification bell can
 // pull this signal without paying for the full overview's expenses query.
 export async function getVehicleDueBackAlerts() {
-  const rentalRows = await db.select().from(vehicleRentals).where(eq(vehicleRentals.status, 'active'))
+  const rentalRows = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.status, 'active'), isNull(vehicleRentals.deletedAt)))
   const vehicleRows = await db.select().from(vehicles)
 
   return rentalRows
@@ -106,7 +110,7 @@ export async function getAllVehicleOptions() {
 
 export async function getRentalClientsOverview() {
   const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
-  const rentalRows = await db.select().from(vehicleRentals)
+  const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt))
 
   const result = clientRows.map((client) => {
     const clientRentals = rentalRows.filter((rental) => rental.clientId === client.id)
@@ -129,7 +133,11 @@ export async function getRentalClientDetail(clientId: number) {
   const [client] = await db.select().from(rentalClients).where(eq(rentalClients.id, clientId))
   if (!client) return null
 
-  const rentalRows = await db.select().from(vehicleRentals).where(eq(vehicleRentals.clientId, clientId)).orderBy(desc(vehicleRentals.createdAt))
+  const rentalRows = await db
+    .select()
+    .from(vehicleRentals)
+    .where(and(eq(vehicleRentals.clientId, clientId), isNull(vehicleRentals.deletedAt)))
+    .orderBy(desc(vehicleRentals.createdAt))
   const vehicleRows = await db.select().from(vehicles)
 
   const rentalHistory = rentalRows.map((rental) => ({
@@ -156,7 +164,7 @@ export async function getLocationReportsOverview(period: PeriodKey) {
   const { start } = periodRange(period)
 
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
-  const rentalRows = await db.select().from(vehicleRentals)
+  const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt))
   const expenseRows = await db.select().from(vehicleExpenses)
   const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
 
@@ -206,7 +214,7 @@ export async function getLocationReportsOverview(period: PeriodKey) {
 }
 
 export async function getRentalDetail(rentalId: number) {
-  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
   if (!rental) return null
   const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, rental.vehicleId))
   const chargeRows = await db.select().from(rentalCharges).where(eq(rentalCharges.rentalId, rentalId)).orderBy(rentalCharges.id)

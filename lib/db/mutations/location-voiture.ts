@@ -1,7 +1,8 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
 import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
+import { writeAuditLog, type Actor } from './audit'
 
 export async function createRentalClient(input: { name: string; phone?: string | null }) {
   const [client] = await db.insert(rentalClients).values({ name: input.name, phone: input.phone ?? null }).returning()
@@ -90,7 +91,7 @@ export async function createRental(input: {
 
 export async function closeRental(rentalId: number, input: { endDate: string }) {
   return db.transaction(async (tx) => {
-    const [rental] = await tx.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+    const [rental] = await tx.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
     if (!rental) {
       throw new Error('Location introuvable.')
     }
@@ -115,7 +116,7 @@ export async function renewRental(rentalId: number, additionalDays: number) {
     throw new Error('Le nombre de jours doit être supérieur à zéro.')
   }
 
-  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
   if (!rental) {
     throw new Error('Location introuvable.')
   }
@@ -151,7 +152,7 @@ export async function addRentalCharge(rentalId: number, input: { description: st
   if (input.quantity <= 0 || input.unitPrice <= 0) {
     throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')
   }
-  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
   if (!rental) {
     throw new Error('Location introuvable.')
   }
@@ -177,7 +178,7 @@ export async function recordRentalPayment(rentalId: number, amount: number) {
     throw new Error('Le montant doit être supérieur à zéro.')
   }
 
-  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  const [rental] = await db.select().from(vehicleRentals).where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
   if (!rental) {
     throw new Error('Location introuvable.')
   }
@@ -191,4 +192,93 @@ export async function recordRentalPayment(rentalId: number, amount: number) {
     .where(eq(vehicleRentals.id, rentalId))
     .returning()
   return updated
+}
+
+export async function updateRental(
+  rentalId: number,
+  input: { startDate?: string; days?: number; dailyRateOverride?: number; notes?: string | null },
+  actor: Actor,
+  reason?: string,
+) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(vehicleRentals)
+      .where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
+      .for('update')
+    if (!existing) {
+      throw new Error('Location introuvable.')
+    }
+    if (input.days !== undefined && input.days <= 0) {
+      throw new Error('La durée de location doit être supérieure à zéro.')
+    }
+    if (input.dailyRateOverride !== undefined && input.dailyRateOverride <= 0) {
+      throw new Error('Le tarif journalier doit être supérieur à zéro.')
+    }
+
+    const startDate = input.startDate ?? existing.startDate
+    const days = input.days ?? Math.max(1, Math.round((new Date(existing.plannedEndDate).getTime() - new Date(existing.startDate).getTime()) / (24 * 60 * 60 * 1000)))
+    const dailyRate = input.dailyRateOverride ?? existing.dailyRate
+    const totalAmount = dailyRate * days
+    const paymentStatus = existing.amountPaid >= totalAmount ? 'paid' : existing.amountPaid > 0 ? 'partial' : 'unpaid'
+
+    const [updated] = await tx
+      .update(vehicleRentals)
+      .set({
+        startDate,
+        plannedEndDate: addDays(startDate, days),
+        dailyRate,
+        totalAmount,
+        paymentStatus,
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      })
+      .where(eq(vehicleRentals.id, rentalId))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'vehicle_rental',
+      entityId: rentalId,
+      action: 'update',
+      actor,
+      reason,
+      beforeData: existing,
+      afterData: updated,
+    })
+
+    return updated
+  })
+}
+
+export async function deleteRental(rentalId: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(vehicleRentals)
+      .where(and(eq(vehicleRentals.id, rentalId), isNull(vehicleRentals.deletedAt)))
+      .for('update')
+    if (!existing) {
+      throw new Error('Location introuvable.')
+    }
+
+    if (existing.status === 'active') {
+      await tx.update(vehicles).set({ status: 'available' }).where(eq(vehicles.id, existing.vehicleId))
+    }
+
+    const [deleted] = await tx
+      .update(vehicleRentals)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(vehicleRentals.id, rentalId))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'vehicle_rental',
+      entityId: rentalId,
+      action: 'delete',
+      actor,
+      reason,
+      beforeData: existing,
+    })
+
+    return deleted
+  })
 }

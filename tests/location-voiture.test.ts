@@ -1,19 +1,23 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import { auditLog, rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
 import {
   addRentalCharge,
   createRental,
   closeRental,
   createRentalClient,
   createVehicle,
+  deleteRental,
   recordRentalPayment,
   recordVehicleExpense,
   removeRentalCharge,
   renewRental,
+  updateRental,
 } from '@/lib/db/mutations/location-voiture'
-import { getRentalClientDetail, getRentalDetail } from '@/lib/db/queries/location-voiture'
+import { getRentalClientDetail, getRentalDetail, getVehiclesOverview } from '@/lib/db/queries/location-voiture'
+
+const actor = { userId: 'u1', userName: 'Admin Test' }
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const vehicleIds: number[] = []
@@ -38,6 +42,7 @@ afterAll(async () => {
   for (const id of rentalIds) {
     const [rental] = await db.select({ clientId: vehicleRentals.clientId }).from(vehicleRentals).where(eq(vehicleRentals.id, id))
     if (rental) rentalClientIds.add(rental.clientId)
+    await db.delete(auditLog).where(and(eq(auditLog.entityType, 'vehicle_rental'), eq(auditLog.entityId, id)))
     await db.delete(rentalCharges).where(eq(rentalCharges.rentalId, id))
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
@@ -226,5 +231,59 @@ describe('closeRental', () => {
 
     const [updatedVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, vehicle.id))
     expect(updatedVehicle.status).toBe('available')
+  })
+})
+
+describe('updateRental', () => {
+  it('recomputes the total/payment status from new days and rate, and writes an audit entry', async () => {
+    const vehicle = await makeVehicle('N', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Correction', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+    await recordRentalPayment(rental.id, 20000) // fully paid at the original total (20,000)
+
+    const updated = await updateRental(rental.id, { days: 4, dailyRateOverride: 10000 }, actor, 'Prolongation oubliée')
+    expect(updated.totalAmount).toBe(40000)
+    expect(updated.paymentStatus).toBe('partial') // 20,000 paid against a new 40,000 total
+    expect(updated.plannedEndDate).toBe('2026-11-05')
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'vehicle_rental'), eq(auditLog.entityId, rental.id)))
+    expect(log.action).toBe('update')
+    expect(log.reason).toBe('Prolongation oubliée')
+  })
+})
+
+describe('deleteRental', () => {
+  it('frees an active vehicle, soft-deletes the rental, and hides it from getVehiclesOverview', async () => {
+    const vehicle = await makeVehicle('O', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Suppression', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    await deleteRental(rental.id, actor, 'Double saisie')
+
+    const [updatedVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, vehicle.id))
+    expect(updatedVehicle.status).toBe('available')
+
+    const [row] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rental.id))
+    expect(row.deletedAt).not.toBeNull()
+
+    const overview = await getVehiclesOverview()
+    expect(overview.rentals.find((r) => r.id === rental.id)).toBeUndefined()
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'vehicle_rental'), eq(auditLog.entityId, rental.id)))
+    expect(log.action).toBe('delete')
+    expect(log.reason).toBe('Double saisie')
+  })
+
+  it('leaves a completed rental vehicle untouched, and rejects deleting a rental twice', async () => {
+    const vehicle = await makeVehicle('P', 5000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Clôturé', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+    await closeRental(rental.id, { endDate: '2026-11-02' })
+
+    await deleteRental(rental.id, actor)
+    const [updatedVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, vehicle.id))
+    expect(updatedVehicle.status).toBe('available') // closeRental already freed it; delete shouldn't touch it again
+
+    await expect(deleteRental(rental.id, actor)).rejects.toThrow(/introuvable/i)
   })
 })

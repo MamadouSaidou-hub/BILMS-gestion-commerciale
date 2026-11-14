@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, Banknote, Car, CheckCircle2, FileText, Fuel, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { AlertTriangle, Banknote, Car, CheckCircle2, FileText, Fuel, Pencil, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp, Trash2, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -20,10 +20,15 @@ type Rental = {
   plannedEndDate: string
   endDate: string | null
   daysRemaining: number | null
+  days: number
+  dailyRate: number
+  dailyRateFormatted: string
+  totalAmount: number
   totalAmountFormatted: string
   amountPaidFormatted: string
   paymentStatus: 'paid' | 'partial' | 'unpaid'
   status: 'active' | 'completed' | 'cancelled'
+  notes: string | null
 }
 type Expense = { id: number; vehicleId: number | null; vehicleName: string; date: string; category: string; amountFormatted: string; notes: string | null }
 type RentalClientOption = { id: number; name: string; phone: string }
@@ -339,6 +344,97 @@ function AddRentalChargeForm({ rental, onDone }: { rental: Rental; onDone: () =>
   )
 }
 
+function EditRentalForm({ rental, onSaved }: { rental: Rental; onSaved: () => void }) {
+  const [startDate, setStartDate] = useState(rental.startDate)
+  const [days, setDays] = useState(String(rental.days))
+  const [dailyRate, setDailyRate] = useState(String(rental.dailyRate))
+  const [notes, setNotes] = useState(rental.notes ?? '')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/locations-voiture/${rental.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, days, dailyRateOverride: dailyRate, notes, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">{rental.vehicleName} — {rental.clientName}</p>
+      <div className="form-row">
+        <div className="form-field"><label>Date de début</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+        <div className="form-field"><label>Durée (jours)</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
+      </div>
+      <div className="form-field"><label>Tarif journalier (GNF)</label><input required type="number" min="1" value={dailyRate} onChange={(event) => setDailyRate(event.target.value)} /></div>
+      <div className="form-field"><label>Notes (optionnel)</label><input value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeleteRentalConfirm({ rental, onClose, onDone }: { rental: Rental; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/locations-voiture/${rental.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        Le véhicule redevient disponible si la location était active. Les frais déjà ajoutés restent enregistrés. La location
+        reste visible en base (avec qui et quand) à des fins d’audit, mais disparaît des listes et des totaux.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder la location</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer la location'}</button>
+      </div>
+    </div>
+  )
+}
+
 function NewExpenseForm({ vehicles, onCreated }: { vehicles: Vehicle[]; onCreated: () => void }) {
   const [vehicleId, setVehicleId] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -403,6 +499,8 @@ export function LocationVoitureView() {
   const [payingRental, setPayingRental] = useState<Rental | null>(null)
   const [renewingRental, setRenewingRental] = useState<Rental | null>(null)
   const [chargingRental, setChargingRental] = useState<Rental | null>(null)
+  const [editingRental, setEditingRental] = useState<Rental | null>(null)
+  const [deletingRental, setDeletingRental] = useState<Rental | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -508,6 +606,8 @@ export function LocationVoitureView() {
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setClosingRental(rental)}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Clôturer</button>}
                     <button className="btn-ghost" onClick={() => setChargingRental(rental)}><Fuel size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Frais</button>
                     <Link className="btn-ghost" href={`/location-voiture/${rental.id}/facture`} target="_blank"><FileText size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Facture</Link>
+                    <button className="btn-ghost" onClick={() => setEditingRental(rental)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                    <button className="btn-ghost" onClick={() => setDeletingRental(rental)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
                   </td>
                 </tr>
               ))}
@@ -561,6 +661,18 @@ export function LocationVoitureView() {
       </Modal>
       <Modal open={chargingRental !== null} onClose={() => setChargingRental(null)} title="Ajouter une ligne de frais" subtitle={chargingRental ? `${chargingRental.vehicleName} — ${chargingRental.clientName}` : ''}>
         {chargingRental && <AddRentalChargeForm rental={chargingRental} onDone={() => setRefreshKey((key) => key + 1)} />}
+      </Modal>
+      <Modal open={editingRental !== null} onClose={() => setEditingRental(null)} title="Modifier la location" subtitle="">
+        {editingRental && <EditRentalForm rental={editingRental} onSaved={() => { setEditingRental(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={deletingRental !== null} onClose={() => setDeletingRental(null)} title="Supprimer cette location ?" subtitle="">
+        {deletingRental && (
+          <DeleteRentalConfirm
+            rental={deletingRental}
+            onClose={() => setDeletingRental(null)}
+            onDone={() => { setDeletingRental(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, assurance, carburant...">
         <NewExpenseForm vehicles={data?.vehicles ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
