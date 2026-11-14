@@ -473,6 +473,49 @@ function NewBuildingExpenseForm({ buildings, onCreated }: { buildings: Building[
   )
 }
 
+function RecordRentForm({ lease, period, onSaved }: { lease: ActiveLease; period: string; onSaved: () => void }) {
+  const [amount, setAmount] = useState('')
+  const [paidDate, setPaidDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/baux/${lease.id}/loyers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period, status: 'paid', amount: amount || undefined, paidDate }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Loyer de base : <strong>{lease.monthlyRentFormatted}</strong> — période {period}.</p>
+      <div className="form-field">
+        <label>Montant personnalisé (optionnel)</label>
+        <input type="number" min="0" placeholder={String(lease.monthlyRent)} value={amount} onChange={(event) => setAmount(event.target.value)} />
+      </div>
+      <div className="form-field"><label>Date de paiement</label><input required type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le loyer'}</button></div>
+    </form>
+  )
+}
+
 export function ImmoView() {
   const [data, setData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(true)
@@ -486,6 +529,7 @@ export function ImmoView() {
   const [editingLeaseRent, setEditingLeaseRent] = useState<ActiveLease | null>(null)
   const [editingUnitRent, setEditingUnitRent] = useState<Unit | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
+  const [recordingRentLease, setRecordingRentLease] = useState<ActiveLease | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -637,7 +681,7 @@ export function ImmoView() {
                       {!unit.activeLease && <button className="btn-ghost" onClick={() => setLeaseUnit(unit)}>Louer</button>}
                       {unit.activeLease && (
                         <>
-                          <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'paid')}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Marquer payé</button>
+                          <button className="btn-ghost" onClick={() => setRecordingRentLease(unit.activeLease!)}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Marquer payé</button>
                           <button className="btn-ghost" onClick={() => setRentStatus(unit.activeLease!.id, 'late')}>En retard</button>
                           <button className="btn-ghost" onClick={() => setRenewingLease({ id: unit.activeLease!.id, endDate: unit.activeLease!.endDate })}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>
                           <button className="btn-ghost" onClick={() => endLease(unit.activeLease!)}>Terminer le bail</button>
@@ -704,6 +748,15 @@ export function ImmoView() {
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, réparations, taxes...">
         <NewBuildingExpenseForm buildings={data?.buildings ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />
+      </Modal>
+      <Modal open={recordingRentLease !== null} onClose={() => setRecordingRentLease(null)} title="Enregistrer le loyer" subtitle={recordingRentLease?.tenantName ?? ''}>
+        {recordingRentLease && (
+          <RecordRentForm
+            lease={recordingRentLease}
+            period={period}
+            onSaved={() => { setRecordingRentLease(null); setRefreshKey((key) => key + 1) }}
+          />
+        )}
       </Modal>
     </AppShell>
   )

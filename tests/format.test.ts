@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPastDue } from '@/lib/format'
+import { isPastDue, periodToFrenchLabel } from '@/lib/format'
 
 describe('isPastDue', () => {
   it('is false for a due date later today or in the future', () => {
@@ -24,5 +24,18 @@ describe('isPastDue', () => {
     const earlierToday = new Date()
     earlierToday.setHours(0, 0, 0, 0)
     expect(isPastDue(earlierToday.toISOString())).toBe(false)
+  })
+})
+
+describe('periodToFrenchLabel', () => {
+  it('turns a YYYY-MM period into a French month name and year', () => {
+    expect(periodToFrenchLabel('2026-11')).toBe('Novembre 2026')
+    expect(periodToFrenchLabel('2026-01')).toBe('Janvier 2026')
+    expect(periodToFrenchLabel('2026-12')).toBe('Décembre 2026')
+  })
+
+  it('returns the input unchanged when it is not in YYYY-MM format', () => {
+    expect(periodToFrenchLabel('not-a-period')).toBe('not-a-period')
+    expect(periodToFrenchLabel('2026-13')).toBe('2026-13')
   })
 })

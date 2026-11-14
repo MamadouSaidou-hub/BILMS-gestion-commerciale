@@ -3,6 +3,7 @@ import { getRentPaymentDetail } from '@/lib/db/queries'
 import { getSessionContext, isAdmin } from '@/lib/session'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
+import { periodToFrenchLabel } from '@/lib/format'
 import { amountInWords } from '@/lib/number-to-words'
 import { InvoiceActions } from './invoice-actions'
 
@@ -41,7 +42,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             <div className="invoice-meta">
               <div style={{ fontSize: 22, fontWeight: 800, color: NAVY, letterSpacing: '-.5px' }}>QUITTANCE DE LOYER</div>
               <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>N° {payment.reference}</div>
-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Période : {payment.period}</div>
+              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Période : {periodToFrenchLabel(payment.period)}</div>
               <span style={{ display: 'inline-block', marginTop: 8, fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 12, color: '#2e9e3f', background: '#2e9e3f1a' }}>Payé</span>
             </div>
           </div>
@@ -71,7 +72,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               </thead>
               <tbody>
                 <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                  <td style={{ padding: '10px 6px' }}>Loyer — {payment.unitLabel} — {payment.period}</td>
+                  <td style={{ padding: '10px 6px' }}>Loyer — {payment.unitLabel} — {periodToFrenchLabel(payment.period)}</td>
                   <td style={{ textAlign: 'right', padding: '10px 6px', fontWeight: 600 }}>{payment.amountFormatted}</td>
                 </tr>
               </tbody>

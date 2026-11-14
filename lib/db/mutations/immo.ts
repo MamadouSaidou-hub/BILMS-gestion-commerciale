@@ -286,7 +286,13 @@ export async function endLease(leaseId: number, settlement?: { depositReturnedAm
   })
 }
 
-export async function recordRentPayment(input: { leaseId: number; period: string; status: 'paid' | 'late' | 'unpaid' }) {
+export async function recordRentPayment(input: {
+  leaseId: number
+  period: string
+  status: 'paid' | 'late' | 'unpaid'
+  amount?: number
+  paidDate?: string
+}) {
   const [lease] = await db.select().from(leases).where(eq(leases.id, input.leaseId))
   if (!lease) {
     throw new Error('Bail introuvable.')
@@ -300,20 +306,22 @@ export async function recordRentPayment(input: { leaseId: number; period: string
   if (existingForPeriod) {
     const [updated] = await db
       .update(rentPayments)
-      .set({ status: input.status, paidDate: input.status === 'paid' ? new Date().toISOString() : null })
+      .set({ status: input.status, paidDate: input.status === 'paid' ? (input.paidDate ?? new Date().toISOString()) : null })
       .where(eq(rentPayments.id, existingForPeriod.id))
       .returning()
     return updated
   }
 
+  // `amount` may be overridden for a one-off discount on this specific period — it never touches
+  // `leases.monthlyRent`, so later periods keep billing at the lease's base rent.
   const [payment] = await db
     .insert(rentPayments)
     .values({
       leaseId: input.leaseId,
       period: input.period,
-      amount: lease.monthlyRent,
+      amount: input.amount ?? lease.monthlyRent,
       status: input.status,
-      paidDate: input.status === 'paid' ? new Date().toISOString() : null,
+      paidDate: input.status === 'paid' ? (input.paidDate ?? new Date().toISOString()) : null,
     })
     .returning()
   return payment

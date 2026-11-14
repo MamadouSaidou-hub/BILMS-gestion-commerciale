@@ -19,8 +19,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
+  const amount = body.amount !== undefined && body.amount !== null && body.amount !== '' ? Number(body.amount) : undefined
+  if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
+    return NextResponse.json({ error: 'Montant invalide.' }, { status: 400 })
+  }
+  const paidDate = typeof body.paidDate === 'string' && body.paidDate.trim() ? body.paidDate : undefined
+
   try {
-    const payment = await recordRentPayment({ leaseId, period, status })
+    const payment = await recordRentPayment({ leaseId, period, status, amount, paidDate })
     return NextResponse.json({ payment })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

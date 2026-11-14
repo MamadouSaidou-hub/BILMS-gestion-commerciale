@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Download, Mail, MessageCircle, Printer } from 'lucide-react'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
+import { periodToFrenchLabel } from '@/lib/format'
 import { amountInWords } from '@/lib/number-to-words'
 import { drawInvoiceFooter, drawInvoiceHeader, drawSignatureAndCachet, INVOICE_NAVY } from '@/lib/pdf-invoice'
 
@@ -28,7 +29,7 @@ async function buildReceiptPdf(payment: PaymentDetail) {
 
   const { pageWidth, headerBottomY } = await drawInvoiceHeader(doc, {
     title: 'QUITTANCE DE LOYER',
-    metaLines: [`N° ${payment.reference}`, `Période : ${payment.period}`],
+    metaLines: [`N° ${payment.reference}`, `Période : ${periodToFrenchLabel(payment.period)}`],
   })
 
   autoTable(doc, {
@@ -47,7 +48,7 @@ async function buildReceiptPdf(payment: PaymentDetail) {
   autoTable(doc, {
     startY: afterInfo,
     head: [['Description', 'Montant']],
-    body: [[`Loyer — ${payment.unitLabel} — ${payment.period}`, payment.amountFormatted]],
+    body: [[`Loyer — ${payment.unitLabel} — ${periodToFrenchLabel(payment.period)}`, payment.amountFormatted]],
     theme: 'striped',
     headStyles: { fillColor: INVOICE_NAVY },
     styles: { fontSize: 9 },

@@ -31,3 +31,20 @@ export function isPastDue(dueDate: string): boolean {
   due.setHours(0, 0, 0, 0)
   return due.getTime() < today.getTime()
 }
+
+const FRENCH_MONTHS = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+]
+
+/** Turns a "YYYY-MM" rent period into "Novembre 2026" for display on quittances. Returns the
+ * input unchanged if it isn't in that format. */
+export function periodToFrenchLabel(period: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period)
+  if (!match) return period
+  const year = match[1]
+  const monthIndex = Number(match[2]) - 1
+  const monthName = FRENCH_MONTHS[monthIndex]
+  if (!monthName) return period
+  return `${monthName} ${year}`
+}

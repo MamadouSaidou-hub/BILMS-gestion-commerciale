@@ -113,6 +113,39 @@ describe('recordRentPayment', () => {
     const rows = await db.select().from(rentPayments).where(eq(rentPayments.leaseId, lease.id))
     expect(rows.length).toBe(1)
   })
+
+  it('stores a one-off custom amount without changing the lease base rent', async () => {
+    const unit = await makeUnit('D', 3000000)
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Remise', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const discounted = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid', amount: 2500000 })
+    expect(discounted.amount).toBe(2500000)
+
+    const [unchangedLease] = await db.select().from(leases).where(eq(leases.id, lease.id))
+    expect(unchangedLease.monthlyRent).toBe(3000000)
+
+    const nextMonth = await recordRentPayment({ leaseId: lease.id, period: '2026-12', status: 'unpaid' })
+    expect(nextMonth.amount).toBe(3000000)
+  })
+
+  it('falls back to the lease base rent when amount is omitted', async () => {
+    const unit = await makeUnit('E')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Standard', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid' })
+    expect(payment.amount).toBe(lease.monthlyRent)
+  })
+
+  it('stores a backdated paidDate when provided', async () => {
+    const unit = await makeUnit('F')
+    const lease = await createLease({ unitId: unit.id, tenantName: 'Locataire Rétroactif', startDate: '2026-11-01', months: 12 })
+    leaseIds.push(lease.id)
+
+    const payment = await recordRentPayment({ leaseId: lease.id, period: '2026-11', status: 'paid', paidDate: '2026-10-01T00:00:00.000Z' })
+    expect(payment.paidDate).toBe('2026-10-01T00:00:00.000Z')
+  })
 })
 
 describe('renewLease', () => {
