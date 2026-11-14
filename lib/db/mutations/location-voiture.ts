@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../client'
-import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
 
 export async function createRentalClient(input: { name: string; phone?: string | null }) {
@@ -28,9 +28,15 @@ export async function createRental(input: {
   clientPhone?: string | null
   startDate: string
   days: number
+  // Lets the admin price this specific trip differently from the vehicle's standing rate (e.g. a
+  // longer/farther route) instead of always inheriting `vehicle.dailyRate`.
+  dailyRateOverride?: number
 }) {
   if (input.days <= 0) {
     throw new Error('La durée de location doit être supérieure à zéro.')
+  }
+  if (input.dailyRateOverride !== undefined && input.dailyRateOverride <= 0) {
+    throw new Error('Le tarif journalier doit être supérieur à zéro.')
   }
 
   return db.transaction(async (tx) => {
@@ -60,7 +66,8 @@ export async function createRental(input: {
       clientPhone = client.phone
     }
 
-    const totalAmount = vehicle.dailyRate * input.days
+    const dailyRate = input.dailyRateOverride ?? vehicle.dailyRate
+    const totalAmount = dailyRate * input.days
     const [rental] = await tx
       .insert(vehicleRentals)
       .values({
@@ -70,7 +77,7 @@ export async function createRental(input: {
         clientPhone,
         startDate: input.startDate,
         plannedEndDate: addDays(input.startDate, input.days),
-        dailyRate: vehicle.dailyRate,
+        dailyRate,
         totalAmount,
       })
       .returning()
@@ -138,6 +145,31 @@ export async function recordVehicleExpense(input: { vehicleId?: number | null; d
     .values({ vehicleId: input.vehicleId ?? null, date: input.date, category: input.category, amount: input.amount, notes: input.notes ?? null })
     .returning()
   return expense
+}
+
+export async function addRentalCharge(rentalId: number, input: { description: string; unit?: string | null; quantity: number; unitPrice: number }) {
+  if (input.quantity <= 0 || input.unitPrice <= 0) {
+    throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')
+  }
+  const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
+  if (!rental) {
+    throw new Error('Location introuvable.')
+  }
+  const [charge] = await db
+    .insert(rentalCharges)
+    .values({
+      rentalId,
+      description: input.description,
+      unit: input.unit ?? null,
+      quantity: input.quantity,
+      unitPrice: input.unitPrice,
+    })
+    .returning()
+  return charge
+}
+
+export async function removeRentalCharge(chargeId: number) {
+  await db.delete(rentalCharges).where(eq(rentalCharges.id, chargeId))
 }
 
 export async function recordRentalPayment(rentalId: number, amount: number) {

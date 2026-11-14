@@ -1,9 +1,19 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
-import { createRental, closeRental, createRentalClient, createVehicle, recordRentalPayment, recordVehicleExpense, renewRental } from '@/lib/db/mutations/location-voiture'
-import { getRentalClientDetail } from '@/lib/db/queries/location-voiture'
+import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import {
+  addRentalCharge,
+  createRental,
+  closeRental,
+  createRentalClient,
+  createVehicle,
+  recordRentalPayment,
+  recordVehicleExpense,
+  removeRentalCharge,
+  renewRental,
+} from '@/lib/db/mutations/location-voiture'
+import { getRentalClientDetail, getRentalDetail } from '@/lib/db/queries/location-voiture'
 
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 const vehicleIds: number[] = []
@@ -28,6 +38,7 @@ afterAll(async () => {
   for (const id of rentalIds) {
     const [rental] = await db.select({ clientId: vehicleRentals.clientId }).from(vehicleRentals).where(eq(vehicleRentals.id, id))
     if (rental) rentalClientIds.add(rental.clientId)
+    await db.delete(rentalCharges).where(eq(rentalCharges.rentalId, id))
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
   for (const id of vehicleIds) {
@@ -77,6 +88,54 @@ describe('createRental', () => {
     rentalIds.push(rental.id)
 
     await expect(createRental({ vehicleId: vehicle.id, clientName: 'Deuxième client', startDate: '2026-11-01', days: 1 })).rejects.toThrow(/disponible/i)
+  })
+
+  it('uses a per-booking rate override instead of the vehicle rate when provided', async () => {
+    const vehicle = await makeVehicle('H', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Trajet', startDate: '2026-11-01', days: 2, dailyRateOverride: 25000 })
+    rentalIds.push(rental.id)
+
+    expect(rental.dailyRate).toBe(25000)
+    expect(rental.totalAmount).toBe(50000)
+
+    const [unchangedVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, vehicle.id))
+    expect(unchangedVehicle.dailyRate).toBe(10000)
+  })
+
+  it('falls back to the vehicle rate when no override is given', async () => {
+    const vehicle = await makeVehicle('I', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Standard', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+    expect(rental.dailyRate).toBe(10000)
+  })
+})
+
+describe('addRentalCharge / removeRentalCharge', () => {
+  it('adds charge lines and reflects them in getRentalDetail.grandTotal', async () => {
+    const vehicle = await makeVehicle('J', 10000)
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Frais', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    await addRentalCharge(rental.id, { description: 'Carburant', unit: 'litres', quantity: 10, unitPrice: 12000 })
+    const fuel = await addRentalCharge(rental.id, { description: 'Frais de route', quantity: 1, unitPrice: 5000 })
+
+    const detail = await getRentalDetail(rental.id)
+    expect(detail?.charges).toHaveLength(2)
+    expect(detail?.grandTotal).toBe(10000 + 10 * 12000 + 5000)
+
+    await removeRentalCharge(fuel.id)
+    const afterRemoval = await getRentalDetail(rental.id)
+    expect(afterRemoval?.charges).toHaveLength(1)
+    expect(afterRemoval?.grandTotal).toBe(10000 + 10 * 12000)
+  })
+
+  it('rejects a non-positive quantity or unit price', async () => {
+    const vehicle = await makeVehicle('K')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Test Frais', startDate: '2026-11-01', days: 1 })
+    rentalIds.push(rental.id)
+
+    await expect(addRentalCharge(rental.id, { description: 'Carburant', quantity: 0, unitPrice: 1000 })).rejects.toThrow(/supérieurs à zéro/i)
+    await expect(addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 0 })).rejects.toThrow(/supérieurs à zéro/i)
   })
 })
 

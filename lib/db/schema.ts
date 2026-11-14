@@ -440,6 +440,25 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
   ...timestamps,
 })
 
+// Extra free-text invoice lines on a rental (fuel, road fees, etc.) — unlike the boutique's
+// `saleItems`, there's no product catalog behind these, so `description`/`unit` are plain text
+// entered per line, matching the client's paper-invoice format (one line per charge).
+export const rentalCharges = pgTable(
+  'rental_charges',
+  {
+    id: serial('id').primaryKey(),
+    rentalId: integer('rental_id')
+      .notNull()
+      .references(() => vehicleRentals.id, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    unit: text('unit'),
+    quantity: doublePrecision('quantity').notNull().default(1),
+    unitPrice: doublePrecision('unit_price').notNull(),
+    ...timestamps,
+  },
+  (table) => [index('rental_charges_rental_id_idx').on(table.rentalId)],
+)
+
 // ─── Immo ─────────────────────────────────────────────────────────────────
 // Same isolation principle: buildings/units/leases/rentPayments are their own domain, no sharing
 // with the boutique's tables. No separate tenant table — name/phone live on the lease row.

@@ -4,10 +4,20 @@ import { useState } from 'react'
 import { Download, Mail, MessageCircle, Printer } from 'lucide-react'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
+import { formatFcfa } from '@/lib/format'
 import { amountInWords } from '@/lib/number-to-words'
 import { drawInvoiceFooter, drawInvoiceHeader, drawSignatureAndCachet, INVOICE_NAVY } from '@/lib/pdf-invoice'
 
 const statusLabel: Record<string, string> = { paid: 'Payée', partial: 'Partielle', unpaid: 'Non payée' }
+
+type RentalCharge = {
+  id: number
+  description: string
+  unit: string | null
+  quantity: number
+  unitPrice: number
+  totalFormatted: string
+}
 
 type RentalDetail = {
   reference: string
@@ -21,6 +31,9 @@ type RentalDetail = {
   dailyRateFormatted: string
   totalAmount: number
   totalAmountFormatted: string
+  charges: RentalCharge[]
+  grandTotal: number
+  grandTotalFormatted: string
   amountPaidFormatted: string
   paymentStatus: string
 }
@@ -53,7 +66,10 @@ async function buildInvoicePdf(rental: RentalDetail) {
   autoTable(doc, {
     startY: afterInfo,
     head: [['Description', 'Jours', 'Tarif/jour', 'Total']],
-    body: [[`Location ${rental.vehicleName} du ${rental.startDate} au ${rental.plannedEndDate}`, String(rental.days), rental.dailyRateFormatted, rental.totalAmountFormatted]],
+    body: [
+      [`Location ${rental.vehicleName} du ${rental.startDate} au ${rental.plannedEndDate}`, String(rental.days), rental.dailyRateFormatted, rental.totalAmountFormatted],
+      ...rental.charges.map((charge) => [charge.description, `${charge.quantity}${charge.unit ? ` ${charge.unit}` : ''}`, formatFcfa(charge.unitPrice), charge.totalFormatted]),
+    ],
     theme: 'striped',
     headStyles: { fillColor: INVOICE_NAVY },
     styles: { fontSize: 9 },
@@ -67,14 +83,14 @@ async function buildInvoicePdf(rental: RentalDetail) {
   doc.setFontSize(10)
   doc.setTextColor(255, 255, 255)
   doc.text('Total à payer', pageWidth - 86, afterItems + 6.5)
-  doc.text(rental.totalAmountFormatted, pageWidth - 18, afterItems + 6.5, { align: 'right' })
+  doc.text(rental.grandTotalFormatted, pageWidth - 18, afterItems + 6.5, { align: 'right' })
 
   const afterTotal = afterItems + 14
   doc.setFontSize(9)
   doc.setTextColor(90, 107, 130)
   doc.text('Arrêtée la présente facture à la somme de :', 14, afterTotal + 4)
   doc.setFont('helvetica', 'italic')
-  doc.text(`${amountInWords(rental.totalAmount)} ${businessConfig.currency}`, 14, afterTotal + 9)
+  doc.text(`${amountInWords(rental.grandTotal)} ${businessConfig.currency}`, 14, afterTotal + 9)
   doc.setFont('helvetica', 'normal')
 
   await drawSignatureAndCachet(doc, { pageWidth, afterY: afterTotal })
@@ -107,7 +123,7 @@ export function InvoiceActions({ rental }: { rental: RentalDetail }) {
     try {
       await downloadPdf()
       setHint('PDF téléchargé — joignez-le manuellement dans la conversation WhatsApp qui vient de s’ouvrir.')
-      const message = `Facture ${rental.reference} — ${companyInfo.name}\nMontant : ${rental.totalAmountFormatted}\nMerci de votre confiance !`
+      const message = `Facture ${rental.reference} — ${companyInfo.name}\nMontant : ${rental.grandTotalFormatted}\nMerci de votre confiance !`
       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
     } finally {
       setGenerating(null)
@@ -120,7 +136,7 @@ export function InvoiceActions({ rental }: { rental: RentalDetail }) {
       await downloadPdf()
       setHint('PDF téléchargé — joignez-le manuellement au brouillon e-mail qui vient de s’ouvrir.')
       const subject = `Facture ${rental.reference} — ${companyInfo.name}`
-      const body = `Bonjour,\n\nVeuillez trouver ci-joint la facture ${rental.reference} d'un montant de ${rental.totalAmountFormatted}.\n\nMerci de votre confiance.\n\n${companyInfo.name}\n${companyInfo.phone} · ${companyInfo.email}`
+      const body = `Bonjour,\n\nVeuillez trouver ci-joint la facture ${rental.reference} d'un montant de ${rental.grandTotalFormatted}.\n\nMerci de votre confiance.\n\n${companyInfo.name}\n${companyInfo.phone} · ${companyInfo.email}`
       window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     } finally {
       setGenerating(null)

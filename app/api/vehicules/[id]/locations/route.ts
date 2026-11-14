@@ -16,8 +16,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const clientName = body.clientName ? String(body.clientName).trim() : undefined
   const startDate = String(body.startDate ?? '').trim()
   const days = Number(body.days)
+  const dailyRateOverride =
+    body.dailyRateOverride !== undefined && body.dailyRateOverride !== null && body.dailyRateOverride !== '' ? Number(body.dailyRateOverride) : undefined
 
-  if (!Number.isFinite(vehicleId) || (!clientId && !clientName) || !startDate || !Number.isFinite(days) || days <= 0) {
+  if (
+    !Number.isFinite(vehicleId) ||
+    (!clientId && !clientName) ||
+    !startDate ||
+    !Number.isFinite(days) ||
+    days <= 0 ||
+    (dailyRateOverride !== undefined && (!Number.isFinite(dailyRateOverride) || dailyRateOverride <= 0))
+  ) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
 
@@ -29,6 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       clientPhone: body.clientPhone ? String(body.clientPhone).trim() : undefined,
       startDate,
       days,
+      dailyRateOverride,
     })
     return NextResponse.json({ rental }, { status: 201 })
   } catch (error) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, Banknote, Car, CheckCircle2, FileText, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import { AlertTriangle, Banknote, Car, CheckCircle2, FileText, Fuel, Plus, ReceiptText, RefreshCw, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
@@ -104,6 +104,7 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
   const [clientPhone, setClientPhone] = useState('')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [days, setDays] = useState('1')
+  const [dailyRate, setDailyRate] = useState(String(vehicle.dailyRate))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -116,10 +117,13 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
     }
     setSubmitting(true)
     try {
+      const dailyRateOverride = Number(dailyRate) !== vehicle.dailyRate ? dailyRate : undefined
       const res = await fetch(`/api/vehicules/${vehicle.id}/locations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(creatingClient ? { clientName, clientPhone, startDate, days } : { clientId, startDate, days }),
+        body: JSON.stringify(
+          creatingClient ? { clientName, clientPhone, startDate, days, dailyRateOverride } : { clientId, startDate, days, dailyRateOverride },
+        ),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -137,7 +141,7 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
   return (
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
-      <p className="section-subtitle">Tarif journalier : <strong>{vehicle.dailyRateFormatted}</strong></p>
+      <p className="section-subtitle">Tarif journalier habituel : <strong>{vehicle.dailyRateFormatted}</strong></p>
       <div className="form-field">
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>Client</span>
@@ -162,6 +166,10 @@ function NewRentalForm({ vehicle, clientOptions, onCreated }: { vehicle: Vehicle
       <div className="form-row">
         <div className="form-field"><label>Date de début</label><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
         <div className="form-field"><label>Durée (jours)</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
+      </div>
+      <div className="form-field">
+        <label>Tarif journalier pour cette location (GNF)</label>
+        <input required type="number" min="1" value={dailyRate} onChange={(event) => setDailyRate(event.target.value)} />
       </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer la location'}</button></div>
     </form>
@@ -281,6 +289,56 @@ function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => v
   )
 }
 
+function AddRentalChargeForm({ rental, onDone }: { rental: Rental; onDone: () => void }) {
+  const [description, setDescription] = useState('')
+  const [unit, setUnit] = useState('')
+  const [quantity, setQuantity] = useState('1')
+  const [unitPrice, setUnitPrice] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/locations-voiture/${rental.id}/frais`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, unit, quantity, unitPrice }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      setDescription('')
+      setUnit('')
+      setQuantity('1')
+      setUnitPrice('')
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">Ajoutez une ligne de frais à la facture (carburant, frais de route...).</p>
+      <div className="form-field"><label>Description</label><input required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ex : Carburant" /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Unité (optionnel)</label><input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="Ex : litres" /></div>
+        <div className="form-field"><label>Quantité</label><input required type="number" min="0.01" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
+        <div className="form-field"><label>Prix unitaire (GNF)</label><input required type="number" min="1" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></div>
+      </div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Ajout...' : 'Ajouter la ligne'}</button></div>
+    </form>
+  )
+}
+
 function NewExpenseForm({ vehicles, onCreated }: { vehicles: Vehicle[]; onCreated: () => void }) {
   const [vehicleId, setVehicleId] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -344,6 +402,7 @@ export function LocationVoitureView() {
   const [closingRental, setClosingRental] = useState<Rental | null>(null)
   const [payingRental, setPayingRental] = useState<Rental | null>(null)
   const [renewingRental, setRenewingRental] = useState<Rental | null>(null)
+  const [chargingRental, setChargingRental] = useState<Rental | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -447,6 +506,7 @@ export function LocationVoitureView() {
                     {rental.paymentStatus !== 'paid' && <button className="btn-ghost" onClick={() => setPayingRental(rental)}><Wallet size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Payer</button>}
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setRenewingRental(rental)}><RefreshCw size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Renouveler</button>}
                     {rental.status === 'active' && <button className="btn-ghost" onClick={() => setClosingRental(rental)}><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Clôturer</button>}
+                    <button className="btn-ghost" onClick={() => setChargingRental(rental)}><Fuel size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Frais</button>
                     <Link className="btn-ghost" href={`/location-voiture/${rental.id}/facture`} target="_blank"><FileText size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Facture</Link>
                   </td>
                 </tr>
@@ -498,6 +558,9 @@ export function LocationVoitureView() {
       </Modal>
       <Modal open={renewingRental !== null} onClose={() => setRenewingRental(null)} title="Renouveler la location" subtitle="">
         {renewingRental && <RenewRentalForm rental={renewingRental} onDone={() => { setRenewingRental(null); setRefreshKey((key) => key + 1) }} />}
+      </Modal>
+      <Modal open={chargingRental !== null} onClose={() => setChargingRental(null)} title="Ajouter une ligne de frais" subtitle={chargingRental ? `${chargingRental.vehicleName} — ${chargingRental.clientName}` : ''}>
+        {chargingRental && <AddRentalChargeForm rental={chargingRental} onDone={() => setRefreshKey((key) => key + 1)} />}
       </Modal>
       <Modal open={expenseModalOpen} onClose={() => setExpenseModalOpen(false)} title="Nouvelle dépense" subtitle="Entretien, assurance, carburant...">
         <NewExpenseForm vehicles={data?.vehicles ?? []} onCreated={() => { setExpenseModalOpen(false); setRefreshKey((key) => key + 1) }} />

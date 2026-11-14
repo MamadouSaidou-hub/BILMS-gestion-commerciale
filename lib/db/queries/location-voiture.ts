@@ -1,6 +1,6 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../client'
-import { rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { daysUntil } from '@/lib/dates'
 import { periodRange, type PeriodKey } from '@/lib/period'
@@ -209,8 +209,21 @@ export async function getRentalDetail(rentalId: number) {
   const [rental] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rentalId))
   if (!rental) return null
   const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, rental.vehicleId))
+  const chargeRows = await db.select().from(rentalCharges).where(eq(rentalCharges.rentalId, rentalId)).orderBy(rentalCharges.id)
 
   const days = Math.max(1, Math.round((new Date(rental.plannedEndDate).getTime() - new Date(rental.startDate).getTime()) / (24 * 60 * 60 * 1000)))
+
+  const charges = chargeRows.map((charge) => ({
+    id: charge.id,
+    description: charge.description,
+    unit: charge.unit,
+    quantity: charge.quantity,
+    unitPrice: charge.unitPrice,
+    total: charge.quantity * charge.unitPrice,
+    totalFormatted: formatFcfa(charge.quantity * charge.unitPrice),
+  }))
+  const chargesTotal = charges.reduce((sum, charge) => sum + charge.total, 0)
+  const grandTotal = rental.totalAmount + chargesTotal
 
   return {
     id: rental.id,
@@ -226,6 +239,9 @@ export async function getRentalDetail(rentalId: number) {
     dailyRateFormatted: formatFcfa(rental.dailyRate),
     totalAmount: rental.totalAmount,
     totalAmountFormatted: formatFcfa(rental.totalAmount),
+    charges,
+    grandTotal,
+    grandTotalFormatted: formatFcfa(grandTotal),
     amountPaid: rental.amountPaid,
     amountPaidFormatted: formatFcfa(rental.amountPaid),
     paymentStatus: rental.paymentStatus,

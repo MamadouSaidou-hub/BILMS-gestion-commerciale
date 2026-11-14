@@ -3,6 +3,7 @@ import { getRentalDetail } from '@/lib/db/queries'
 import { getSessionContext, isAdmin } from '@/lib/session'
 import { companyInfo } from '@/lib/company-info'
 import { businessConfig } from '@/lib/business-config'
+import { formatFcfa } from '@/lib/format'
 import { amountInWords } from '@/lib/number-to-words'
 import { InvoiceActions } from './invoice-actions'
 
@@ -87,6 +88,14 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                   <td style={{ textAlign: 'right', padding: '10px 6px' }}>{rental.dailyRateFormatted}</td>
                   <td style={{ textAlign: 'right', padding: '10px 6px', fontWeight: 600 }}>{rental.totalAmountFormatted}</td>
                 </tr>
+                {rental.charges.map((charge) => (
+                  <tr key={charge.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
+                    <td style={{ padding: '10px 6px' }}>{charge.description}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px' }}>{charge.quantity}{charge.unit ? ` ${charge.unit}` : ''}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px' }}>{formatFcfa(charge.unitPrice)}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontWeight: 600 }}>{charge.totalFormatted}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -94,7 +103,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           <div className="invoice-totals-row">
             <div style={{ minWidth: 240 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: NAVY, borderRadius: 8, color: 'white', fontWeight: 800, fontSize: 14 }}>
-                <span>Total à payer</span><span>{rental.totalAmountFormatted}</span>
+                <span>Total à payer</span><span>{rental.grandTotalFormatted}</span>
               </div>
               {rental.paymentStatus !== 'paid' && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px 0', fontSize: 11, color: '#c17800', fontWeight: 700 }}>
@@ -106,7 +115,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           </div>
 
           <p style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic', margin: '10px 0 0' }}>
-            Arrêtée la présente facture à la somme de : <strong style={{ color: NAVY, fontStyle: 'normal' }}>{amountInWords(rental.totalAmount)} {businessConfig.currency}</strong>
+            Arrêtée la présente facture à la somme de : <strong style={{ color: NAVY, fontStyle: 'normal' }}>{amountInWords(rental.grandTotal)} {businessConfig.currency}</strong>
           </p>
         </div>
 
