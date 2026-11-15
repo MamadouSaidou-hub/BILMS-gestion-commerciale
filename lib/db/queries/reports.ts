@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, products, saleItems, sales, stores, supplierDeliveries, supplierPayments } from '../schema'
 import { formatFcfa } from '@/lib/format'
@@ -74,11 +74,11 @@ export async function getReportsOverview(period: PeriodKey, custom?: CustomRange
         deliveriesCount: sql<number>`count(*)`.mapWith(Number),
       })
       .from(supplierDeliveries)
-      .where(effectiveDateGte(supplierDeliveries.date, supplierDeliveries.createdAt, start)),
+      .where(and(effectiveDateGte(supplierDeliveries.date, supplierDeliveries.createdAt, start), isNull(supplierDeliveries.deletedAt))),
     db
       .select({ total: sql<number>`coalesce(sum(${supplierPayments.amount}), 0)`.mapWith(Number) })
       .from(supplierPayments)
-      .where(gte(supplierPayments.createdAt, start.toISOString())),
+      .where(and(effectiveDateGte(supplierPayments.date, supplierPayments.createdAt, start), isNull(supplierPayments.deletedAt))),
     Promise.all(
       trendBuckets.map(({ bucketStart, bucketEnd, label }) =>
         db

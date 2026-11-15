@@ -295,8 +295,129 @@ function RenewRentalForm({ rental, onDone }: { rental: Rental; onDone: () => voi
   )
 }
 
+type RentalPaymentRow = { id: number; amount: number; amountFormatted: string; date: string | null; effectiveDate: string }
+
+/** The rental's payment history, with per-payment correction/removal. Lives inside the payment
+ * modal: it's where an admin already is when they notice a wrong amount or date. */
+function RentalPaymentHistory({ rentalId, refreshKey, onChanged }: { rentalId: number; refreshKey: number; onChanged: () => void }) {
+  const [payments, setPayments] = useState<RentalPaymentRow[]>([])
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [editDate, setEditDate] = useState('')
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchJson<{ rental: { payments: RentalPaymentRow[] } }>(`/api/locations-voiture/${rentalId}`)
+      .then((json) => {
+        if (!cancelled) setPayments(json.rental.payments ?? [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [rentalId, refreshKey])
+
+  async function save(id: number) {
+    setBusyId(id)
+    setError('')
+    try {
+      const res = await fetch(`/api/locations-voiture/${rentalId}/paiement/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: editAmount, date: editDate || null }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      setEditingId(null)
+      onChanged()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function remove(id: number) {
+    setBusyId(id)
+    setError('')
+    try {
+      const res = await fetch(`/api/locations-voiture/${rentalId}/paiement/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onChanged()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (payments.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <p className="section-title">Paiements déjà enregistrés</p>
+      {error && <p className="form-error">{error}</p>}
+      <table className="data-table">
+        <thead><tr><th>Date</th><th>Montant</th><th></th></tr></thead>
+        <tbody>
+          {payments.map((payment) => (
+            <tr key={payment.id}>
+              {editingId === payment.id ? (
+                <>
+                  <td><input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} /></td>
+                  <td><input type="number" min="1" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} /></td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" className="btn-ghost" disabled={busyId === payment.id} onClick={() => save(payment.id)}>Enregistrer</button>
+                    <button type="button" className="btn-ghost" onClick={() => setEditingId(null)}>Annuler</button>
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td data-label="Date">{new Date(payment.effectiveDate).toLocaleDateString('fr-FR')}</td>
+                  <td data-label="Montant">{payment.amountFormatted}</td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => {
+                        setEditingId(payment.id)
+                        setEditAmount(String(payment.amount))
+                        setEditDate((payment.date ?? payment.effectiveDate).slice(0, 10))
+                      }}
+                    >
+                      <Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier
+                    </button>
+                    <button type="button" className="btn-ghost" disabled={busyId === payment.id} onClick={() => remove(payment.id)}>
+                      <Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer
+                    </button>
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => void }) {
   const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [historyKey, setHistoryKey] = useState(0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -308,7 +429,7 @@ function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => v
       const res = await fetch(`/api/locations-voiture/${rental.id}/paiement`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -327,8 +448,19 @@ function RentalPaymentForm({ rental, onDone }: { rental: Rental; onDone: () => v
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">Total : <strong>{rental.totalAmountFormatted}</strong> · Déjà payé : <strong>{rental.amountPaidFormatted}</strong></p>
-      <div className="form-field"><label>Montant payé (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Montant payé (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+        <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le paiement'}</button></div>
+      <RentalPaymentHistory
+        rentalId={rental.id}
+        refreshKey={historyKey}
+        onChanged={() => {
+          setHistoryKey((key) => key + 1)
+          onDone()
+        }}
+      />
     </form>
   )
 }
@@ -338,6 +470,7 @@ function AddRentalChargeForm({ rental, onDone }: { rental: Rental; onDone: () =>
   const [unit, setUnit] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [unitPrice, setUnitPrice] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -349,7 +482,7 @@ function AddRentalChargeForm({ rental, onDone }: { rental: Rental; onDone: () =>
       const res = await fetch(`/api/locations-voiture/${rental.id}/frais`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, unit, quantity, unitPrice }),
+        body: JSON.stringify({ description, unit, quantity, unitPrice, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -378,6 +511,7 @@ function AddRentalChargeForm({ rental, onDone }: { rental: Rental; onDone: () =>
         <div className="form-field"><label>Quantité</label><input required type="number" min="0.01" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
         <div className="form-field"><label>Prix unitaire (GNF)</label><input required type="number" min="1" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></div>
       </div>
+      <div className="form-field"><label>Date du frais</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Ajout...' : 'Ajouter la ligne'}</button></div>
     </form>
   )

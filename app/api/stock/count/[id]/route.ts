@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { deleteStockCount, updateStockCount } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,12 +17,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const countedQty = Number(body.countedQty)
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
 
+  const date = body.date ? String(body.date) : null
+
   if (!Number.isFinite(countedQty) || countedQty < 0) {
     return NextResponse.json({ error: 'Quantité invalide.' }, { status: 400 })
   }
+  if (date !== null && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
-    const count = await updateStockCount(countId, { countedQty }, { userId: ctx.userId, userName: ctx.userName }, reason)
+    const count = await updateStockCount(countId, { countedQty, date }, { userId: ctx.userId, userName: ctx.userName }, reason)
     return NextResponse.json({ count })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

@@ -7,6 +7,7 @@ export async function createTransfer(input: {
   fromStoreId: number
   toStoreId: number
   items: { productId: number; quantity: number }[]
+  date?: string | null
 }) {
   if (input.items.length === 0) {
     throw new Error('Un transfert doit contenir au moins un article.')
@@ -41,6 +42,7 @@ export async function createTransfer(input: {
         fromStoreId: input.fromStoreId,
         toStoreId: input.toStoreId,
         status: 'in_transit',
+        date: input.date ?? null,
       })
       .returning()
 
@@ -67,7 +69,7 @@ export async function createTransfer(input: {
   })
 }
 
-export async function receiveTransfer(transferId: number) {
+export async function receiveTransfer(transferId: number, input: { date?: string | null } = {}) {
   return db.transaction(async (tx) => {
     const [transfer] = await tx.select().from(transfers).where(eq(transfers.id, transferId))
     if (!transfer) {
@@ -109,7 +111,7 @@ export async function receiveTransfer(transferId: number) {
 
     const [updated] = await tx
       .update(transfers)
-      .set({ status: 'completed' })
+      .set({ status: 'completed', receivedDate: input.date ?? null })
       .where(eq(transfers.id, transferId))
       .returning()
 

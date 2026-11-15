@@ -21,6 +21,9 @@ export async function recordAutoCashMovement(input: {
   storeId?: number | null
   category: string
   description?: string | null
+  /** The date of the operation that produced this movement (a backdated sale's own date, say) —
+   * so the caisse reports it on the day the money actually moved, not the day it was typed in. */
+  date?: string | null
 }) {
   if (input.amount <= 0) return null
 
@@ -35,6 +38,7 @@ export async function recordAutoCashMovement(input: {
     description: input.description,
     amount: input.amount,
     storeId: input.storeId ?? null,
+    date: input.date ?? null,
   })
 }
 
@@ -48,7 +52,13 @@ export async function setDefaultCashAccount(id: number) {
   })
 }
 
-export async function transferBetweenCashAccounts(input: { fromId: number; toId: number; amount: number; description?: string | null }) {
+export async function transferBetweenCashAccounts(input: {
+  fromId: number
+  toId: number
+  amount: number
+  description?: string | null
+  date?: string | null
+}) {
   if (input.fromId === input.toId) {
     throw new Error('Choisissez deux caisses différentes.')
   }
@@ -64,8 +74,8 @@ export async function transferBetweenCashAccounts(input: { fromId: number; toId:
     }
 
     await tx.insert(cashMovements).values([
-      { cashAccountId: input.fromId, type: 'expense', category: 'Transfert interne', description: input.description ?? `Vers ${toAccount.name}`, amount: input.amount },
-      { cashAccountId: input.toId, type: 'deposit', category: 'Transfert interne', description: input.description ?? `Depuis ${fromAccount.name}`, amount: input.amount },
+      { cashAccountId: input.fromId, type: 'expense', category: 'Transfert interne', description: input.description ?? `Vers ${toAccount.name}`, amount: input.amount, date: input.date ?? null },
+      { cashAccountId: input.toId, type: 'deposit', category: 'Transfert interne', description: input.description ?? `Depuis ${fromAccount.name}`, amount: input.amount, date: input.date ?? null },
     ])
 
     await tx.update(cashAccounts).set({ balance: sql`${cashAccounts.balance} - ${input.amount}` }).where(eq(cashAccounts.id, input.fromId))
@@ -101,6 +111,7 @@ export async function recordCashMovement(input: {
   description?: string | null
   amount: number
   storeId?: number | null
+  date?: string | null
 }) {
   if (input.amount <= 0) {
     throw new Error('Le montant doit être supérieur à zéro.')
@@ -121,6 +132,7 @@ export async function recordCashMovement(input: {
         category: input.category,
         description: input.description ?? null,
         amount: input.amount,
+        date: input.date ?? null,
       })
       .returning()
 
@@ -142,7 +154,7 @@ export async function recordCashMovement(input: {
  */
 export async function updateCashMovement(
   id: number,
-  input: { category: string; description?: string | null; amount: number; type: (typeof cashMovementType)[number] },
+  input: { category: string; description?: string | null; amount: number; type: (typeof cashMovementType)[number]; date?: string | null },
   actor: Actor,
   reason?: string,
 ) {
@@ -165,7 +177,7 @@ export async function updateCashMovement(
 
     const [updated] = await tx
       .update(cashMovements)
-      .set({ category: input.category, description: input.description ?? null, amount: input.amount, type: input.type })
+      .set({ category: input.category, description: input.description ?? null, amount: input.amount, type: input.type, date: input.date ?? null })
       .where(eq(cashMovements.id, id))
       .returning()
 

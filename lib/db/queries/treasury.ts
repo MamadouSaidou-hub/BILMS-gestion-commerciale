@@ -1,12 +1,19 @@
-import { and, desc, eq, gte, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, receivables, sales, stores, supplierPayables, supplierPayments } from '../schema'
 import { formatFcfa } from '@/lib/format'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, type CustomRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
+import { effectiveDate, effectiveDateGte, effectiveDateLt } from './effective-date'
+import { saleDateGte, saleDateLt } from './sale-date'
 
-export async function getTreasuryOverview(period: PeriodKey, storeName: string | null) {
-  const { start } = periodRange(period)
+export async function getTreasuryOverview(period: PeriodKey, storeName: string | null, custom?: CustomRange) {
+  const { start, end } = periodRange(period, custom)
+  // Only a custom range gets an upper bound — see the same note in transfers.ts.
+  const isCustom = period === 'custom'
+  const paymentsUpperBound = isCustom ? effectiveDateLt(payments.date, payments.createdAt, end) : undefined
+  const salesUpperBound = isCustom ? saleDateLt(end) : undefined
+  const supplierUpperBound = isCustom ? effectiveDateLt(supplierPayments.date, supplierPayments.createdAt, end) : undefined
   const storeId = await resolveStoreId(storeName)
 
   // Independent reads — run concurrently rather than one `await` at a time (see the same fix in
@@ -17,7 +24,8 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
         id: payments.id,
         amount: payments.amount,
         method: payments.method,
-        createdAt: payments.createdAt,
+        createdAt: sql<string>`${effectiveDate(payments.date, payments.createdAt)}`,
+        ownDate: payments.date,
         storeId: payments.storeId,
         clientId: payments.clientId,
         saleId: payments.saleId,
@@ -28,13 +36,18 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
       .innerJoin(stores, eq(payments.storeId, stores.id))
       .innerJoin(clients, eq(payments.clientId, clients.id))
       .where(
-        and(gte(payments.createdAt, start.toISOString()), isNull(payments.deletedAt), storeId ? eq(payments.storeId, storeId) : undefined),
+        and(
+          effectiveDateGte(payments.date, payments.createdAt, start),
+          paymentsUpperBound,
+          isNull(payments.deletedAt),
+          storeId ? eq(payments.storeId, storeId) : undefined,
+        ),
       )
-      .orderBy(desc(payments.createdAt)),
+      .orderBy(desc(sql`${effectiveDate(payments.date, payments.createdAt)}`)),
     db
       .select({ total: sales.totalAmount, status: sales.paymentStatus })
       .from(sales)
-      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeId ? eq(sales.storeId, storeId) : undefined)),
+      .where(and(saleDateGte(start), salesUpperBound, isNull(sales.deletedAt), storeId ? eq(sales.storeId, storeId) : undefined)),
     db
       .select({ amount: receivables.amount, status: receivables.status, storeId: sales.storeId })
       .from(receivables)
@@ -43,7 +56,7 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
     db
       .select({ amount: supplierPayments.amount })
       .from(supplierPayments)
-      .where(gte(supplierPayments.createdAt, start.toISOString())),
+      .where(and(effectiveDateGte(supplierPayments.date, supplierPayments.createdAt, start), supplierUpperBound, isNull(supplierPayments.deletedAt))),
     db.select({ amount: supplierPayables.amount, status: supplierPayables.status }).from(supplierPayables),
   ])
 
@@ -61,6 +74,7 @@ export async function getTreasuryOverview(period: PeriodKey, storeName: string |
     payments: paymentRows.map((row) => ({
       id: row.id,
       date: row.createdAt,
+      ownDate: row.ownDate,
       client: row.clientName,
       clientId: row.clientId,
       store: row.storeName,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getStoreOptions, getTransfersList } from '@/lib/db/queries'
 import { createTransfer } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { parsePeriodLabel } from '@/lib/period'
 import { effectiveStoreParam, getSessionContext, isAdmin, scopedStoreList } from '@/lib/session'
 import { csvResponse } from '@/lib/csv'
@@ -12,9 +13,12 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams
   const period = parsePeriodLabel(searchParams.get('period'), '7d')
+  const from = searchParams.get('from')
+  const to = searchParams.get('to')
+  const custom = period === 'custom' && from && to ? { from, to } : undefined
   const store = effectiveStoreParam(ctx, searchParams.get('store'))
 
-  const [data, storeOptions] = await Promise.all([getTransfersList(period, store), getStoreOptions()])
+  const [data, storeOptions] = await Promise.all([getTransfersList(period, store, custom), getStoreOptions()])
 
   if (searchParams.get('format') === 'csv') {
     return csvResponse(
@@ -45,9 +49,13 @@ export async function POST(request: NextRequest) {
   const fromStoreId = Number(body.fromStoreId)
   const toStoreId = Number(body.toStoreId)
   const items = Array.isArray(body.items) ? body.items : []
+  const date = body.date ? String(body.date) : undefined
 
   if (!Number.isFinite(fromStoreId) || !Number.isFinite(toStoreId) || items.length === 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
+  }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
   }
 
   if (!isAdmin(ctx) && ctx.storeId !== fromStoreId) {
@@ -64,7 +72,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const transfer = await createTransfer({ fromStoreId, toStoreId, items: parsedItems })
+    const transfer = await createTransfer({ fromStoreId, toStoreId, items: parsedItems, date })
     return NextResponse.json({ transfer }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

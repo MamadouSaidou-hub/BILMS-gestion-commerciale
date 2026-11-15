@@ -1,7 +1,22 @@
 import { NextResponse } from 'next/server'
 import { deleteRental, updateRental } from '@/lib/db/mutations'
+import { getRentalDetail } from '@/lib/db/queries'
 import { toApiErrorMessage } from '@/lib/api-error'
 import { getSessionContext, isAdmin } from '@/lib/session'
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionContext()
+  if (!ctx) return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 })
+  if (!isAdmin(ctx)) return NextResponse.json({ error: 'Réservé aux administrateurs.' }, { status: 403 })
+
+  const { id } = await params
+  const rentalId = Number(id)
+  if (!Number.isFinite(rentalId)) return NextResponse.json({ error: 'Location invalide.' }, { status: 400 })
+
+  const rental = await getRentalDetail(rentalId)
+  if (!rental) return NextResponse.json({ error: 'Location introuvable.' }, { status: 404 })
+  return NextResponse.json({ rental })
+}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await getSessionContext()

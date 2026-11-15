@@ -6,12 +6,12 @@ import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
-
-const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
+import { PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 type PaymentRow = {
   id: number
   date: string
+  ownDate: string | null
   client: string
   clientId: number
   store: string
@@ -53,6 +53,7 @@ function NewPaymentForm({ storeOptions, clientOptions, onCreated }: { storeOptio
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'bank_transfer' | 'check'>('cash')
   const [storeId, setStoreId] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -71,7 +72,7 @@ function NewPaymentForm({ storeOptions, clientOptions, onCreated }: { storeOptio
       const res = await fetch('/api/tresorerie', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, amount, method, storeId }),
+        body: JSON.stringify({ clientId, amount, method, storeId, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -107,11 +108,14 @@ function NewPaymentForm({ storeOptions, clientOptions, onCreated }: { storeOptio
           </select>
         </div>
       </div>
-      <div className="form-field">
-        <label>Magasin d’encaissement</label>
-        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
-          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-        </select>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Magasin d’encaissement</label>
+          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Date d’encaissement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer l’encaissement'}</button></div>
     </form>
@@ -122,6 +126,7 @@ function EditPaymentForm({ payment, storeOptions, onSaved }: { payment: PaymentR
   const [amount, setAmount] = useState(String(payment.amount))
   const [method, setMethod] = useState(payment.method)
   const [storeId, setStoreId] = useState(String(payment.storeId))
+  const [date, setDate] = useState((payment.ownDate ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -134,7 +139,7 @@ function EditPaymentForm({ payment, storeOptions, onSaved }: { payment: PaymentR
       const res = await fetch(`/api/tresorerie/${payment.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, method, storeId, reason: reason || undefined }),
+        body: JSON.stringify({ amount, method, storeId, date: date || null, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -165,11 +170,14 @@ function EditPaymentForm({ payment, storeOptions, onSaved }: { payment: PaymentR
           </select>
         </div>
       </div>
-      <div className="form-field">
-        <label>Magasin d’encaissement</label>
-        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
-          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-        </select>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Magasin d’encaissement</label>
+          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Date d’encaissement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       </div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
@@ -221,7 +229,7 @@ function DeletePaymentConfirm({ payment, onClose, onDone }: { payment: PaymentRo
 }
 
 export function TreasuryView() {
-  const [period, setPeriod] = useState(periods[1])
+  const periodFilter = usePeriodFilter()
   const [store, setStore] = useState('Tous les magasins')
   const [data, setData] = useState<TreasuryData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -233,12 +241,14 @@ export function TreasuryView() {
   const [deletingPayment, setDeletingPayment] = useState<PaymentRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+
   useEffect(() => {
+    if (!periodReady) return
     let cancelled = false
     setLoading(true)
     setError('')
-    const params = new URLSearchParams({ period, store })
-    fetchJson<TreasuryData>(`/api/tresorerie?${params.toString()}`)
+    fetchJson<TreasuryData>(`/api/tresorerie?${periodParams({ store }).toString()}`)
       .then((json) => {
         if (!cancelled) setData(json)
       })
@@ -251,7 +261,8 @@ export function TreasuryView() {
     return () => {
       cancelled = true
     }
-  }, [period, store, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, isCustom, customFrom, customTo, periodReady, store, refreshKey])
 
   useEffect(() => {
     fetchJson<{ stores: StoreOption[] }>('/api/magasins').then((json) => setStoreOptions(json.stores)).catch(() => {})
@@ -265,7 +276,7 @@ export function TreasuryView() {
       <section className="page-heading">
         <div><p className="eyebrow">ENCAISSEMENTS</p><h1>Trésorerie <span>et paiements</span></h1><p className="heading-subtitle">Suivez les encaissements et le solde des créances.</p></div>
         <div className="filter-row">
-          <label className="select-wrap"><span className="sr-only">Période</span><select value={period} onChange={(event) => setPeriod(event.target.value)}>{periods.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
+          <PeriodFilter state={periodFilter} />
           <label className="select-wrap"><span className="sr-only">Magasin</span><select value={store} onChange={(event) => setStore(event.target.value)}>{stores.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
         </div>
       </section>

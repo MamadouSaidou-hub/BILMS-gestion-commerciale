@@ -30,6 +30,8 @@ export {
   removeRentalCharge,
   updateRental,
   deleteRental,
+  updateRentalPayment,
+  deleteRentalPayment,
 } from './location-voiture'
 export {
   createBuilding,

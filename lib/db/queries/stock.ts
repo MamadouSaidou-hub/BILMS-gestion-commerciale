@@ -67,13 +67,14 @@ export async function getStockCountHistory(storeName: string | null) {
       theoreticalQty: stockCounts.theoreticalQty,
       countedQty: stockCounts.countedQty,
       variance: stockCounts.variance,
-      createdAt: stockCounts.createdAt,
+      ownDate: stockCounts.date,
+      createdAt: sql<string>`${effectiveDate(stockCounts.date, stockCounts.createdAt)}`,
     })
     .from(stockCounts)
     .innerJoin(products, eq(stockCounts.productId, products.id))
     .innerJoin(stores, eq(stockCounts.storeId, stores.id))
     .where(and(isNull(stockCounts.deletedAt), storeId ? eq(stockCounts.storeId, storeId) : undefined))
-    .orderBy(desc(stockCounts.createdAt))
+    .orderBy(desc(sql`${effectiveDate(stockCounts.date, stockCounts.createdAt)}`))
     .limit(50)
 
   return rows

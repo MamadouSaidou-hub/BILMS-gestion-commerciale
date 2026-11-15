@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
   if (!isAdmin(ctx)) return NextResponse.json({ error: 'Réservé aux administrateurs.' }, { status: 403 })
 
   const period = parsePeriodLabel(request.nextUrl.searchParams.get('period'), '7d')
-  const data = await getCashAccountsOverview(period)
+  const from = request.nextUrl.searchParams.get('from')
+  const to = request.nextUrl.searchParams.get('to')
+  const custom = period === 'custom' && from && to ? { from, to } : undefined
+  const data = await getCashAccountsOverview(period, custom)
 
   if (request.nextUrl.searchParams.get('format') === 'csv') {
     return csvResponse(

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { recordRentalPayment } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -12,13 +13,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const rentalId = Number(id)
   const body = await request.json()
   const amount = Number(body.amount)
+  const date = body.date ? String(body.date) : undefined
 
   if (!Number.isFinite(rentalId) || !Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
-    const rental = await recordRentalPayment(rentalId, amount)
+    const rental = await recordRentalPayment(rentalId, amount, { date })
     return NextResponse.json({ rental })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

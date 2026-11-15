@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalCharges, rentalClients, rentalPayments, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
 import { writeAuditLog, type Actor } from './audit'
 
@@ -17,6 +17,19 @@ async function getChargesTotal(tx: Tx | typeof db, rentalId: number) {
 
 function paymentStatusFor(amountPaid: number, grandTotal: number): 'paid' | 'partial' | 'unpaid' {
   return amountPaid >= grandTotal ? 'paid' : amountPaid > 0 ? 'partial' : 'unpaid'
+}
+
+/** Recomputes `amountPaid`/`paymentStatus` from the rental's live payment rows — called after any
+ * payment is added, corrected or removed, so the rental's running total can never drift from the
+ * payments that justify it. */
+async function syncRentalPaidTotals(tx: Tx, rentalId: number, grandTotalBase: number) {
+  const paymentRows = await tx.select().from(rentalPayments).where(and(eq(rentalPayments.rentalId, rentalId), isNull(rentalPayments.deletedAt)))
+  const amountPaid = paymentRows.reduce((sum, row) => sum + row.amount, 0)
+  const chargesTotal = await getChargesTotal(tx, rentalId)
+  const paymentStatus = paymentStatusFor(amountPaid, grandTotalBase + chargesTotal)
+
+  const [updated] = await tx.update(vehicleRentals).set({ amountPaid, paymentStatus }).where(eq(vehicleRentals.id, rentalId)).returning()
+  return updated
 }
 
 export async function createRentalClient(input: { name: string; phone?: string | null }) {
@@ -242,7 +255,10 @@ export async function deleteVehicleExpense(id: number, actor: Actor, reason?: st
   })
 }
 
-export async function addRentalCharge(rentalId: number, input: { description: string; unit?: string | null; quantity: number; unitPrice: number }) {
+export async function addRentalCharge(
+  rentalId: number,
+  input: { description: string; unit?: string | null; quantity: number; unitPrice: number; date?: string | null },
+) {
   if (input.quantity <= 0 || input.unitPrice <= 0) {
     throw new Error('Quantité et prix unitaire doivent être supérieurs à zéro.')
   }
@@ -259,6 +275,7 @@ export async function addRentalCharge(rentalId: number, input: { description: st
         unit: input.unit ?? null,
         quantity: input.quantity,
         unitPrice: input.unitPrice,
+        date: input.date ?? null,
       })
       .returning()
 
@@ -290,7 +307,7 @@ export async function removeRentalCharge(chargeId: number) {
   })
 }
 
-export async function recordRentalPayment(rentalId: number, amount: number) {
+export async function recordRentalPayment(rentalId: number, amount: number, input: { date?: string | null } = {}) {
   if (amount <= 0) {
     throw new Error('Le montant doit être supérieur à zéro.')
   }
@@ -301,16 +318,82 @@ export async function recordRentalPayment(rentalId: number, amount: number) {
       throw new Error('Location introuvable.')
     }
 
-    const amountPaid = rental.amountPaid + amount
-    const chargesTotal = await getChargesTotal(tx, rentalId)
-    const paymentStatus = paymentStatusFor(amountPaid, rental.totalAmount + chargesTotal)
+    await tx.insert(rentalPayments).values({ rentalId, amount, date: input.date ?? null })
+    return syncRentalPaidTotals(tx, rentalId, rental.totalAmount)
+  })
+}
+
+export async function updateRentalPayment(
+  id: number,
+  input: { amount: number; date?: string | null },
+  actor: Actor,
+  reason?: string,
+) {
+  if (input.amount <= 0) {
+    throw new Error('Le montant doit être supérieur à zéro.')
+  }
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(rentalPayments).where(and(eq(rentalPayments.id, id), isNull(rentalPayments.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Paiement introuvable.')
+    }
+    const [rental] = await tx.select().from(vehicleRentals).where(eq(vehicleRentals.id, existing.rentalId)).for('update')
+    if (!rental) {
+      throw new Error('Location introuvable.')
+    }
 
     const [updated] = await tx
-      .update(vehicleRentals)
-      .set({ amountPaid, paymentStatus })
-      .where(eq(vehicleRentals.id, rentalId))
+      .update(rentalPayments)
+      .set({ amount: input.amount, date: input.date ?? null })
+      .where(eq(rentalPayments.id, id))
       .returning()
+
+    await syncRentalPaidTotals(tx, existing.rentalId, rental.totalAmount)
+
+    await writeAuditLog(tx, {
+      entityType: 'rental_payment',
+      entityId: id,
+      action: 'update',
+      actor,
+      reason,
+      beforeData: existing,
+      afterData: updated,
+    })
+
     return updated
+  })
+}
+
+export async function deleteRentalPayment(id: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(rentalPayments).where(and(eq(rentalPayments.id, id), isNull(rentalPayments.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Paiement introuvable.')
+    }
+    const [rental] = await tx.select().from(vehicleRentals).where(eq(vehicleRentals.id, existing.rentalId)).for('update')
+    if (!rental) {
+      throw new Error('Location introuvable.')
+    }
+
+    const [deleted] = await tx
+      .update(rentalPayments)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(rentalPayments.id, id))
+      .returning()
+
+    await syncRentalPaidTotals(tx, existing.rentalId, rental.totalAmount)
+
+    await writeAuditLog(tx, {
+      entityType: 'rental_payment',
+      entityId: id,
+      action: 'delete',
+      actor,
+      reason,
+      beforeData: existing,
+    })
+
+    return deleted
   })
 }
 

@@ -192,6 +192,7 @@ function RecordDeliveryForm({
 function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier; onCreated: () => void }) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'bank_transfer' | 'check'>('bank_transfer')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -203,7 +204,7 @@ function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier
       const res = await fetch(`/api/fournisseurs/${supplier.id}/paiements`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, method }),
+        body: JSON.stringify({ amount, method, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -234,6 +235,7 @@ function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier
           </select>
         </div>
       </div>
+      <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le paiement'}</button></div>
     </form>
   )
@@ -260,6 +262,8 @@ type SupplierPaymentRow = {
   amount: number
   amountFormatted: string
   method: 'cash' | 'mobile_money' | 'bank_transfer' | 'check'
+  date: string | null
+  effectiveDate: string
   createdAt: string
 }
 
@@ -399,6 +403,7 @@ function DeleteDeliveryConfirm({ supplierId, delivery, onClose, onDone }: { supp
 function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId: number; payment: SupplierPaymentRow; onSaved: () => void }) {
   const [amount, setAmount] = useState(String(payment.amount))
   const [method, setMethod] = useState(payment.method)
+  const [date, setDate] = useState((payment.date ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -411,7 +416,7 @@ function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId:
       const res = await fetch(`/api/fournisseurs/${supplierId}/paiements/${payment.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, method, reason: reason || undefined }),
+        body: JSON.stringify({ amount, method, date: date || null, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -441,6 +446,7 @@ function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId:
           </select>
         </div>
       </div>
+      <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
     </form>
@@ -557,7 +563,7 @@ function SupplierHistory({
           <tbody>
             {payments.map((payment) => (
               <tr key={payment.id}>
-                <td data-label="Date">{new Date(payment.createdAt).toLocaleDateString('fr-FR')}</td>
+                <td data-label="Date">{new Date(payment.effectiveDate).toLocaleDateString('fr-FR')}</td>
                 <td data-label="Méthode">{payment.method}</td>
                 <td data-label="Montant">{payment.amountFormatted}</td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

@@ -10,8 +10,7 @@ import { downloadCsv } from '@/lib/download-csv'
 import { fetchJson } from '@/lib/fetch-json'
 import { businessConfig } from '@/lib/business-config'
 import { authClient } from '@/lib/auth-client'
-
-const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
+import { PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 type Sale = {
   reference: string
@@ -529,7 +528,7 @@ function CancelSaleConfirm({ sale, onDone, onClose }: { sale: Sale; onDone: () =
 export function SalesView() {
   const { data: session } = authClient.useSession()
   const isAdmin = session?.user?.role === 'admin'
-  const [period, setPeriod] = useState(periods[1])
+  const periodFilter = usePeriodFilter()
   const [store, setStore] = useState('Tous les magasins')
   const [search, setSearch] = useState('')
   const [data, setData] = useState<SalesData | null>(null)
@@ -543,12 +542,14 @@ export function SalesView() {
   const [cancellingSale, setCancellingSale] = useState<Sale | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+
   useEffect(() => {
+    if (!periodReady) return
     let cancelled = false
     setLoading(true)
     setError('')
-    const params = new URLSearchParams({ period, store })
-    fetchJson<SalesData>(`/api/ventes?${params.toString()}`)
+    fetchJson<SalesData>(`/api/ventes?${periodParams({ store }).toString()}`)
       .then((json) => {
         if (!cancelled) setData(json)
       })
@@ -561,7 +562,8 @@ export function SalesView() {
     return () => {
       cancelled = true
     }
-  }, [period, store, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, isCustom, customFrom, customTo, periodReady, store, refreshKey])
 
   useEffect(() => {
     fetchJson<{ stores: StoreOption[] }>('/api/magasins').then((json) => setStoreOptions(json.stores)).catch(() => {})
@@ -578,11 +580,11 @@ export function SalesView() {
   }, [data, search])
 
   return (
-    <AppShell breadcrumb="Pilotage" section="Ventes" onExport={() => downloadCsv(`/api/ventes?${new URLSearchParams({ period, store, format: 'csv' }).toString()}`, 'ventes.csv')}>
+    <AppShell breadcrumb="Pilotage" section="Ventes" onExport={() => downloadCsv(`/api/ventes?${periodParams({ store, format: 'csv' }).toString()}`, 'ventes.csv')}>
       <section className="page-heading">
         <div><p className="eyebrow">TRANSACTIONS</p><h1>Ventes <span>par magasin</span></h1><p className="heading-subtitle">Consultez l’historique des ventes sur la période sélectionnée.</p></div>
         <div className="filter-row">
-          <label className="select-wrap"><span className="sr-only">Période</span><select value={period} onChange={(event) => setPeriod(event.target.value)}>{periods.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
+          <PeriodFilter state={periodFilter} />
           <label className="select-wrap"><span className="sr-only">Magasin</span><select value={store} onChange={(event) => setStore(event.target.value)}>{stores.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
         </div>
       </section>

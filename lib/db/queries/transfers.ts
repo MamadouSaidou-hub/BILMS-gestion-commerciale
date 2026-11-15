@@ -1,12 +1,16 @@
-import { and, desc, eq, gte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../client'
 import { stores, transferItems, transfers } from '../schema'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, type CustomRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
+import { effectiveDate, effectiveDateGte, effectiveDateLt } from './effective-date'
 
-export async function getTransfersList(period: PeriodKey, storeName: string | null) {
-  const { start } = periodRange(period)
+export async function getTransfersList(period: PeriodKey, storeName: string | null, custom?: CustomRange) {
+  const { start, end } = periodRange(period, custom)
+  // Only a custom range gets an upper bound: the named periods stay open-ended so a row dated
+  // slightly in the future (an advance entry) still shows up rather than silently vanishing.
+  const upperBound = period === 'custom' ? effectiveDateLt(transfers.date, transfers.createdAt, end) : undefined
   const storeId = await resolveStoreId(storeName)
   const storeFilter = storeId ? or(eq(transfers.fromStoreId, storeId), eq(transfers.toStoreId, storeId)) : undefined
 
@@ -17,7 +21,7 @@ export async function getTransfersList(period: PeriodKey, storeName: string | nu
     .select({
       id: transfers.id,
       reference: transfers.reference,
-      createdAt: transfers.createdAt,
+      createdAt: sql<string>`${effectiveDate(transfers.date, transfers.createdAt)}`,
       status: transfers.status,
       fromStoreName: fromStore.name,
       toStoreName: toStore.name,
@@ -27,8 +31,8 @@ export async function getTransfersList(period: PeriodKey, storeName: string | nu
     .from(transfers)
     .innerJoin(fromStore, eq(transfers.fromStoreId, fromStore.id))
     .innerJoin(toStore, eq(transfers.toStoreId, toStore.id))
-    .where(and(gte(transfers.createdAt, start.toISOString()), storeFilter))
-    .orderBy(desc(transfers.createdAt))
+    .where(and(effectiveDateGte(transfers.date, transfers.createdAt, start), upperBound, storeFilter))
+    .orderBy(desc(sql`${effectiveDate(transfers.date, transfers.createdAt)}`))
 
   const pendingCount = rows.filter((row) => row.status !== 'completed').length
   const totalQuantity = rows.reduce((sum, row) => sum + row.totalQuantity, 0)

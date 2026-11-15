@@ -95,6 +95,8 @@ export const stockCounts = pgTable(
     // Not a DB-level FK to `user` (auth-schema.ts) to avoid a schema.ts <-> auth-schema.ts import cycle —
     // validated at the application layer, same polymorphic-id pattern used by discountScales.partyId.
     countedBy: text('counted_by').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions below.
+    date: text('date'),
     deletedAt: text('deleted_at'),
     ...timestamps,
   },
@@ -207,6 +209,8 @@ export const payments = pgTable(
       .references(() => stores.id, { onDelete: 'cascade' }),
     amount: doublePrecision('amount').notNull(),
     method: text('method', { enum: paymentMethod }).notNull().default('cash'),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
     deletedAt: text('deleted_at'),
     ...timestamps,
   },
@@ -275,6 +279,11 @@ export const transfers = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     status: text('status', { enum: transferStatus }).notNull().default('pending'),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
+    // When the goods actually arrived at the destination store, set on receiveTransfer. Distinct
+    // from `date` (when they left) — a transfer received days later is recorded as such.
+    receivedDate: text('received_date'),
     ...timestamps,
   },
   (table) => [
@@ -367,6 +376,8 @@ export const supplierPayments = pgTable(
       .references(() => suppliers.id, { onDelete: 'cascade' }),
     amount: doublePrecision('amount').notNull(),
     method: text('method', { enum: paymentMethod }).notNull().default('cash'),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
     deletedAt: text('deleted_at'),
     ...timestamps,
   },
@@ -493,6 +504,10 @@ export const cashMovements = pgTable(
     description: text('description'),
     // Toujours positif — le sens (crédit/débit) est porté par `type`, pas par le signe.
     amount: doublePrecision('amount').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions. An auto-recorded
+    // movement inherits the date of the sale/payment that produced it, so a backdated sale's
+    // cash entry lands in the caisse on the same day the sale is reported on.
+    date: text('date'),
     deletedAt: text('deleted_at'),
     ...timestamps,
   },
@@ -565,6 +580,25 @@ export const vehicleRentals = pgTable('vehicle_rentals', {
 // Extra free-text invoice lines on a rental (fuel, road fees, etc.) — unlike the boutique's
 // `saleItems`, there's no product catalog behind these, so `description`/`unit` are plain text
 // entered per line, matching the client's paper-invoice format (one line per charge).
+// One row per payment received on a rental. Before this, a payment only bumped
+// `vehicleRentals.amountPaid`, so there was no date, no history and nothing to correct — the
+// rental's own `amountPaid` stays the running total (recomputed from these rows on every change).
+export const rentalPayments = pgTable(
+  'rental_payments',
+  {
+    id: serial('id').primaryKey(),
+    rentalId: integer('rental_id')
+      .notNull()
+      .references(() => vehicleRentals.id, { onDelete: 'cascade' }),
+    amount: doublePrecision('amount').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
+    deletedAt: text('deleted_at'),
+    ...timestamps,
+  },
+  (table) => [index('rental_payments_rental_id_idx').on(table.rentalId)],
+)
+
 export const rentalCharges = pgTable(
   'rental_charges',
   {
@@ -576,6 +610,8 @@ export const rentalCharges = pgTable(
     unit: text('unit'),
     quantity: doublePrecision('quantity').notNull().default(1),
     unitPrice: doublePrecision('unit_price').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
     ...timestamps,
   },
   (table) => [index('rental_charges_rental_id_idx').on(table.rentalId)],

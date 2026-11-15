@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, Download, FileSpreadsheet, Gauge, TrendingUp, Wallet } from 'lucide-react'
+import { Download, FileSpreadsheet, Gauge, TrendingUp, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 import { exportLocationReportExcel, exportLocationReportPdf, type LocationReportsData } from '@/lib/export-location-report'
-
-const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
+import { PERIODS, PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: typeof Wallet; tone: 'navy' | 'green' | 'orange' | 'blue' }) {
   return (
@@ -33,20 +32,24 @@ function RankBar({ label, value, formatted, max, color, href }: { label: string;
 }
 
 export function LocationReportsView() {
-  const [period, setPeriod] = useState(periods[2])
+  const periodFilter = usePeriodFilter(PERIODS[2])
   const [data, setData] = useState<LocationReportsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+
   useEffect(() => {
+    if (!periodReady) return
     setLoading(true)
     setError('')
-    fetchJson<LocationReportsData>(`/api/location-voiture/rapports?period=${encodeURIComponent(period)}`)
+    fetchJson<LocationReportsData>(`/api/location-voiture/rapports?${periodParams().toString()}`)
       .then((json) => setData(json))
       .catch((err) => setError(err instanceof Error ? err.message : 'Erreur inconnue.'))
       .finally(() => setLoading(false))
-  }, [period, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, isCustom, customFrom, customTo, periodReady, refreshKey])
 
   const maxExpense = useMemo(() => Math.max(1, ...(data?.expensesByCategory ?? []).map((row) => row.amount)), [data])
   const maxClient = useMemo(() => Math.max(1, ...(data?.topClients ?? []).map((row) => row.totalPaid)), [data])
@@ -56,11 +59,7 @@ export function LocationReportsView() {
       <section className="page-heading">
         <div><p className="eyebrow">LOCATION VOITURE</p><h1>Rapports <span>d’activité</span></h1><p className="heading-subtitle">Locations réservées, dépenses et utilisation de la flotte sur la période.</p></div>
         <div className="filter-row">
-          <label className="select-wrap">
-            <span className="sr-only">Période</span>
-            <select value={period} onChange={(event) => setPeriod(event.target.value)}>{periods.map((item) => <option key={item}>{item}</option>)}</select>
-            <ChevronDown />
-          </label>
+          <PeriodFilter state={periodFilter} />
           <div className="export-group">
             <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportPdf(data, period)}><Download size={13} /> PDF</button>
             <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportExcel(data, period)}><FileSpreadsheet size={13} /> Excel</button>

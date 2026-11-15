@@ -12,9 +12,12 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams
   const period = parsePeriodLabel(searchParams.get('period'), '7d')
+  const from = searchParams.get('from')
+  const to = searchParams.get('to')
+  const custom = period === 'custom' && from && to ? { from, to } : undefined
   const store = effectiveStoreParam(ctx, searchParams.get('store'))
 
-  const [data, storeOptions] = await Promise.all([getSalesList(period, store), getStoreOptions()])
+  const [data, storeOptions] = await Promise.all([getSalesList(period, store, custom), getStoreOptions()])
 
   if (searchParams.get('format') === 'csv') {
     return csvResponse(

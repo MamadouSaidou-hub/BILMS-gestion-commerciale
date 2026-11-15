@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { transferBetweenCashAccounts } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function POST(request: NextRequest) {
@@ -13,13 +14,17 @@ export async function POST(request: NextRequest) {
   const toId = Number(body.toId)
   const amount = Number(body.amount)
   const description = body.description ? String(body.description).trim() : undefined
+  const date = body.date ? String(body.date) : undefined
 
   if (!Number.isFinite(fromId) || !Number.isFinite(toId) || !Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
-    const result = await transferBetweenCashAccounts({ fromId, toId, amount, description })
+    const result = await transferBetweenCashAccounts({ fromId, toId, amount, description, date })
     return NextResponse.json({ ok: true, ...result }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

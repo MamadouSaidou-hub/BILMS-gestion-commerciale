@@ -1,11 +1,14 @@
-import { and, desc, eq, gte, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { cashAccounts, cashMovements } from '../schema'
 import { formatFcfa } from '@/lib/format'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, type CustomRange, type PeriodKey } from '@/lib/period'
+import { effectiveDate, effectiveDateGte, effectiveDateLt } from './effective-date'
 
-export async function getCashAccountsOverview(period: PeriodKey) {
-  const { start } = periodRange(period)
+export async function getCashAccountsOverview(period: PeriodKey, custom?: CustomRange) {
+  const { start, end } = periodRange(period, custom)
+  // Only a custom range gets an upper bound — see the same note in transfers.ts.
+  const upperBound = period === 'custom' ? effectiveDateLt(cashMovements.date, cashMovements.createdAt, end) : undefined
 
   const [accountRows, movementRows] = await Promise.all([
     db.select().from(cashAccounts).orderBy(cashAccounts.name),
@@ -17,13 +20,14 @@ export async function getCashAccountsOverview(period: PeriodKey) {
         category: cashMovements.category,
         description: cashMovements.description,
         amount: cashMovements.amount,
-        createdAt: cashMovements.createdAt,
+        date: cashMovements.date,
+        createdAt: sql<string>`${effectiveDate(cashMovements.date, cashMovements.createdAt)}`,
         accountName: cashAccounts.name,
       })
       .from(cashMovements)
       .innerJoin(cashAccounts, eq(cashMovements.cashAccountId, cashAccounts.id))
-      .where(and(gte(cashMovements.createdAt, start.toISOString()), isNull(cashMovements.deletedAt)))
-      .orderBy(desc(cashMovements.createdAt)),
+      .where(and(effectiveDateGte(cashMovements.date, cashMovements.createdAt, start), upperBound, isNull(cashMovements.deletedAt)))
+      .orderBy(desc(sql`${effectiveDate(cashMovements.date, cashMovements.createdAt)}`)),
   ])
 
   const totalBalance = accountRows.reduce((sum, row) => sum + row.balance, 0)
@@ -61,6 +65,7 @@ export async function getCashAccountsOverview(period: PeriodKey) {
       id: row.id,
       cashAccountId: row.cashAccountId,
       date: row.createdAt,
+      ownDate: row.date,
       account: row.accountName,
       type: row.type,
       category: row.category,

@@ -48,11 +48,17 @@ async function reversePaymentAllocations(tx: Tx, paymentId: number) {
   await tx.delete(paymentAllocations).where(eq(paymentAllocations.paymentId, paymentId))
 }
 
-export async function recordPayment(input: { clientId: number; amount: number; method: (typeof paymentMethod)[number]; storeId: number }) {
+export async function recordPayment(input: {
+  clientId: number
+  amount: number
+  method: (typeof paymentMethod)[number]
+  storeId: number
+  date?: string | null
+}) {
   const payment = await db.transaction(async (tx) => {
     const [payment] = await tx
       .insert(payments)
-      .values({ clientId: input.clientId, saleId: null, storeId: input.storeId, amount: input.amount, method: input.method })
+      .values({ clientId: input.clientId, saleId: null, storeId: input.storeId, amount: input.amount, method: input.method, date: input.date ?? null })
       .returning()
 
     await allocateToReceivables(tx, payment.id, input.clientId, input.amount)
@@ -65,6 +71,7 @@ export async function recordPayment(input: { clientId: number; amount: number; m
     storeId: input.storeId,
     category: 'Encaissement client',
     description: `Paiement #${payment.id}`,
+    date: input.date ?? null,
   })
 
   return payment
@@ -72,7 +79,7 @@ export async function recordPayment(input: { clientId: number; amount: number; m
 
 export async function updatePayment(
   id: number,
-  input: { amount: number; method: (typeof paymentMethod)[number]; storeId: number },
+  input: { amount: number; method: (typeof paymentMethod)[number]; storeId: number; date?: string | null },
   actor: Actor,
   reason?: string,
 ) {
@@ -93,7 +100,7 @@ export async function updatePayment(
 
     const [updated] = await tx
       .update(payments)
-      .set({ amount: input.amount, method: input.method, storeId: input.storeId })
+      .set({ amount: input.amount, method: input.method, storeId: input.storeId, date: input.date ?? null })
       .where(eq(payments.id, id))
       .returning()
 
@@ -112,20 +119,26 @@ export async function updatePayment(
     return { existing, updated }
   })
 
-  await recordAutoCashMovement({
-    direction: 'out',
-    amount: existing.amount,
-    storeId: existing.storeId,
-    category: 'Correction paiement',
-    description: `Correction paiement #${existing.id} (ancien montant)`,
-  })
-  await recordAutoCashMovement({
-    direction: 'in',
-    amount: input.amount,
-    storeId: input.storeId,
-    category: 'Correction paiement',
-    description: `Correction paiement #${existing.id} (nouveau montant)`,
-  })
+  // Skipped when the amount didn't change (a method or date correction): a +X/-X pair that nets to
+  // zero only clutters the caisse's history. Same reasoning as updateSale.
+  if (existing.amount !== input.amount) {
+    await recordAutoCashMovement({
+      direction: 'out',
+      amount: existing.amount,
+      storeId: existing.storeId,
+      category: 'Correction paiement',
+      description: `Correction paiement #${existing.id} (ancien montant)`,
+      date: existing.date,
+    })
+    await recordAutoCashMovement({
+      direction: 'in',
+      amount: input.amount,
+      storeId: input.storeId,
+      category: 'Correction paiement',
+      description: `Correction paiement #${existing.id} (nouveau montant)`,
+      date: input.date ?? null,
+    })
+  }
 
   return updated
 }
@@ -166,6 +179,7 @@ export async function deletePayment(id: number, actor: Actor, reason?: string) {
     storeId: deleted.storeId,
     category: 'Annulation paiement',
     description: `Annulation paiement #${deleted.id}`,
+    date: deleted.date,
   })
 
   return deleted
@@ -207,11 +221,16 @@ async function reverseSupplierPaymentAllocations(tx: Tx, paymentId: number) {
   await tx.delete(supplierPaymentAllocations).where(eq(supplierPaymentAllocations.paymentId, paymentId))
 }
 
-export async function recordSupplierPayment(input: { supplierId: number; amount: number; method: (typeof paymentMethod)[number] }) {
+export async function recordSupplierPayment(input: {
+  supplierId: number
+  amount: number
+  method: (typeof paymentMethod)[number]
+  date?: string | null
+}) {
   const payment = await db.transaction(async (tx) => {
     const [payment] = await tx
       .insert(supplierPayments)
-      .values({ supplierId: input.supplierId, amount: input.amount, method: input.method })
+      .values({ supplierId: input.supplierId, amount: input.amount, method: input.method, date: input.date ?? null })
       .returning()
 
     await allocateToPayables(tx, payment.id, input.supplierId, input.amount)
@@ -224,6 +243,7 @@ export async function recordSupplierPayment(input: { supplierId: number; amount:
     amount: input.amount,
     category: 'Paiement fournisseur',
     description: `Paiement fournisseur #${payment.id}`,
+    date: input.date ?? null,
   })
 
   return payment
@@ -231,7 +251,7 @@ export async function recordSupplierPayment(input: { supplierId: number; amount:
 
 export async function updateSupplierPayment(
   id: number,
-  input: { amount: number; method: (typeof paymentMethod)[number] },
+  input: { amount: number; method: (typeof paymentMethod)[number]; date?: string | null },
   actor: Actor,
   reason?: string,
 ) {
@@ -249,7 +269,7 @@ export async function updateSupplierPayment(
 
     const [updated] = await tx
       .update(supplierPayments)
-      .set({ amount: input.amount, method: input.method })
+      .set({ amount: input.amount, method: input.method, date: input.date ?? null })
       .where(eq(supplierPayments.id, id))
       .returning()
 
@@ -269,19 +289,24 @@ export async function updateSupplierPayment(
   })
 
   // Reversing an outflow brings that money back ("in"); applying the corrected amount sends it
-  // back out ("out") — same two-entry pattern as updatePayment above.
-  await recordAutoCashMovement({
-    direction: 'in',
-    amount: existing.amount,
-    category: 'Correction paiement fournisseur',
-    description: `Correction paiement fournisseur #${existing.id} (ancien montant)`,
-  })
-  await recordAutoCashMovement({
-    direction: 'out',
-    amount: input.amount,
-    category: 'Correction paiement fournisseur',
-    description: `Correction paiement fournisseur #${existing.id} (nouveau montant)`,
-  })
+  // back out ("out") — same two-entry pattern as updatePayment above, and skipped the same way
+  // when the amount didn't change.
+  if (existing.amount !== input.amount) {
+    await recordAutoCashMovement({
+      direction: 'in',
+      amount: existing.amount,
+      category: 'Correction paiement fournisseur',
+      description: `Correction paiement fournisseur #${existing.id} (ancien montant)`,
+      date: existing.date,
+    })
+    await recordAutoCashMovement({
+      direction: 'out',
+      amount: input.amount,
+      category: 'Correction paiement fournisseur',
+      description: `Correction paiement fournisseur #${existing.id} (nouveau montant)`,
+      date: input.date ?? null,
+    })
+  }
 
   return updated
 }
@@ -318,6 +343,7 @@ export async function deleteSupplierPayment(id: number, actor: Actor, reason?: s
     amount: deleted.amount,
     category: 'Annulation paiement fournisseur',
     description: `Annulation paiement fournisseur #${deleted.id}`,
+    date: deleted.date,
   })
 
   return deleted

@@ -57,6 +57,7 @@ export async function createSale(input: {
       storeId: input.storeId,
       category: 'Vente',
       description: `Vente #${sale.reference}`,
+      date: sale.saleDate,
     })
   }
 
@@ -136,23 +137,31 @@ export async function updateSale(
   // append a compensating pair instead — an "out" for whatever the old version put in the caisse,
   // an "in" for whatever the corrected version actually puts in. Two entries rather than one
   // netted figure keeps the caisse's own history legible (a correction happened here).
-  if (reversedAmount > 0) {
+  //
+  // Skipped entirely when the correction left the cash side untouched (fixing only the date or the
+  // client, say): a +X/-X pair that nets to zero tells the reader nothing and has to be cleaned up
+  // by hand.
+  const receivedNow = input.paymentStatus === 'paid' ? updated.totalAmount : input.paymentStatus === 'partial' ? input.paidNow : 0
+  const cashUnchanged = reversedAmount === receivedNow
+
+  if (!cashUnchanged && reversedAmount > 0) {
     await recordAutoCashMovement({
       direction: 'out',
       amount: reversedAmount,
       storeId: updated.storeId,
       category: 'Correction vente',
       description: `Correction vente #${updated.reference} (ancien montant)`,
+      date: updated.saleDate,
     })
   }
-  const receivedNow = input.paymentStatus === 'paid' ? updated.totalAmount : input.paymentStatus === 'partial' ? input.paidNow : 0
-  if (receivedNow > 0) {
+  if (!cashUnchanged && receivedNow > 0) {
     await recordAutoCashMovement({
       direction: 'in',
       amount: receivedNow,
       storeId: updated.storeId,
       category: 'Correction vente',
       description: `Correction vente #${updated.reference} (nouveau montant)`,
+      date: updated.saleDate,
     })
   }
 
@@ -203,6 +212,7 @@ export async function cancelSale(reference: string, actor: Actor, reason?: strin
       storeId: cancelled.storeId,
       category: 'Annulation vente',
       description: `Annulation vente #${cancelled.reference}`,
+      date: cancelled.saleDate,
     })
   }
 

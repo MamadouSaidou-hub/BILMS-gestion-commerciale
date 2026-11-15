@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { deleteCashMovement, updateCashMovement } from '@/lib/db/mutations'
 import { cashMovementType } from '@/lib/db/schema'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { isExpenseCategory } from '@/lib/expense-categories'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
@@ -19,6 +20,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const category = String(body.category ?? '').trim()
   const description = body.description ? String(body.description).trim() : null
   const amount = Number(body.amount)
+  const date = body.date ? String(body.date) : null
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
 
   if (!cashMovementType.includes(type) || !category || !Number.isFinite(amount) || amount <= 0) {
@@ -27,9 +29,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (type === 'expense' && !isExpenseCategory(category)) {
     return NextResponse.json({ error: 'Catégorie de dépense invalide.' }, { status: 400 })
   }
+  if (date !== null && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
-    const movement = await updateCashMovement(movementId, { type, category, description, amount }, { userId: ctx.userId, userName: ctx.userName }, reason)
+    const movement = await updateCashMovement(movementId, { type, category, description, amount, date }, { userId: ctx.userId, userName: ctx.userName }, reason)
     return NextResponse.json({ movement })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

@@ -39,6 +39,7 @@ type StockCountRow = {
   theoreticalQty: number
   countedQty: number
   variance: number
+  ownDate: string | null
   createdAt: string
 }
 
@@ -305,6 +306,7 @@ function StockCountForm({
   const [productId, setProductId] = useState('')
   const [storeId, setStoreId] = useState('')
   const [countedQty, setCountedQty] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -327,7 +329,7 @@ function StockCountForm({
       const res = await fetch('/api/stock/count', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, storeId, countedQty }),
+        body: JSON.stringify({ productId, storeId, countedQty, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -358,7 +360,10 @@ function StockCountForm({
         </select>
       </div>
       {theoreticalItem && <p className="section-subtitle">Quantité théorique actuelle : <strong>{theoreticalItem.quantity}</strong></p>}
-      <div className="form-field"><label>Quantité comptée</label><input required type="number" min="0" value={countedQty} onChange={(event) => setCountedQty(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Quantité comptée</label><input required type="number" min="0" value={countedQty} onChange={(event) => setCountedQty(event.target.value)} /></div>
+        <div className="form-field"><label>Date du comptage</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le comptage'}</button></div>
     </form>
   )
@@ -366,6 +371,7 @@ function StockCountForm({
 
 function EditStockCountForm({ row, onSaved }: { row: StockCountRow; onSaved: () => void }) {
   const [countedQty, setCountedQty] = useState(String(row.countedQty))
+  const [date, setDate] = useState((row.ownDate ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -378,7 +384,7 @@ function EditStockCountForm({ row, onSaved }: { row: StockCountRow; onSaved: () 
       const res = await fetch(`/api/stock/count/${row.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ countedQty, reason: reason || undefined }),
+        body: JSON.stringify({ countedQty, date: date || null, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -397,7 +403,10 @@ function EditStockCountForm({ row, onSaved }: { row: StockCountRow; onSaved: () 
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">{row.productName} ({row.sku}) — {row.storeName} · Théorique à l’époque : <strong>{row.theoreticalQty}</strong></p>
-      <div className="form-field"><label>Quantité comptée corrigée</label><input required type="number" min="0" value={countedQty} onChange={(event) => setCountedQty(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Quantité comptée corrigée</label><input required type="number" min="0" value={countedQty} onChange={(event) => setCountedQty(event.target.value)} /></div>
+        <div className="form-field"><label>Date du comptage</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
     </form>

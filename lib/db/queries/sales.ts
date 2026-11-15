@@ -2,12 +2,14 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, products, receivables, saleItems, sales, stores } from '../schema'
 import { formatFcfa } from '@/lib/format'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, type CustomRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
-import { saleDateGte, saleEffectiveDate } from './sale-date'
+import { saleDateGte, saleDateLt, saleEffectiveDate } from './sale-date'
 
-export async function getSalesList(period: PeriodKey, storeName: string | null) {
-  const { start } = periodRange(period)
+export async function getSalesList(period: PeriodKey, storeName: string | null, custom?: CustomRange) {
+  const { start, end } = periodRange(period, custom)
+  // Only a custom range gets an upper bound — see the same note in transfers.ts.
+  const upperBound = period === 'custom' ? saleDateLt(end) : undefined
   const storeId = await resolveStoreId(storeName)
   const storeFilter = storeId ? eq(sales.storeId, storeId) : undefined
 
@@ -23,7 +25,7 @@ export async function getSalesList(period: PeriodKey, storeName: string | null) 
     .from(sales)
     .innerJoin(stores, eq(sales.storeId, stores.id))
     .leftJoin(clients, eq(sales.clientId, clients.id))
-    .where(and(saleDateGte(start), isNull(sales.deletedAt), storeFilter))
+    .where(and(saleDateGte(start), upperBound, isNull(sales.deletedAt), storeFilter))
     .orderBy(desc(sql`${saleEffectiveDate}`))
 
   const totalRevenue = rows.reduce((sum, row) => sum + row.totalAmount, 0)

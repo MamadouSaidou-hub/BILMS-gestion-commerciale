@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { auditLog, rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import { auditLog, rentalCharges, rentalClients, rentalPayments, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
 import {
   addRentalCharge,
   createRental,
@@ -9,8 +9,10 @@ import {
   createRentalClient,
   createVehicle,
   deleteRental,
+  deleteRentalPayment,
   deleteVehicleExpense,
   recordRentalPayment,
+  updateRentalPayment,
   recordVehicleExpense,
   removeRentalCharge,
   renewRental,
@@ -47,6 +49,13 @@ afterAll(async () => {
     if (rental) rentalClientIds.add(rental.clientId)
     await db.delete(auditLog).where(and(eq(auditLog.entityType, 'vehicle_rental'), eq(auditLog.entityId, id)))
     await db.delete(rentalCharges).where(eq(rentalCharges.rentalId, id))
+    // recordRentalPayment now writes a dated payment row per payment — clean those up too, and
+    // their audit entries, before the rental they hang off disappears.
+    const paymentRows = await db.select({ id: rentalPayments.id }).from(rentalPayments).where(eq(rentalPayments.rentalId, id))
+    for (const payment of paymentRows) {
+      await db.delete(auditLog).where(and(eq(auditLog.entityType, 'rental_payment'), eq(auditLog.entityId, payment.id)))
+    }
+    await db.delete(rentalPayments).where(eq(rentalPayments.rentalId, id))
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
   for (const id of vehicleIds) {
@@ -253,6 +262,66 @@ describe('addRentalCharge / removeRentalCharge', () => {
     const afterCharge = await addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 5000 })
     const [rentalRow] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, afterCharge.rentalId))
     expect(rentalRow.paymentStatus).toBe('partial')
+  })
+})
+
+describe('rental payment history', () => {
+  it('records each payment as its own dated row, and keeps the rental total in sync', async () => {
+    const vehicle = await makeVehicle('PayHist')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Historique', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+
+    await recordRentalPayment(rental.id, 6000, { date: '2026-11-03' })
+    await recordRentalPayment(rental.id, 4000, { date: '2026-11-07' })
+
+    const detail = await getRentalDetail(rental.id)
+    expect(detail!.payments).toHaveLength(2)
+    expect(detail!.payments.map((p) => p.date)).toEqual(['2026-11-03', '2026-11-07'])
+    expect(detail!.amountPaid).toBe(10000)
+  })
+
+  it('recomputes the rental total when a payment is corrected, and writes an audit entry', async () => {
+    const vehicle = await makeVehicle('PayEdit')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Correction', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+
+    await recordRentalPayment(rental.id, 10000, { date: '2026-11-02' })
+    const detail = await getRentalDetail(rental.id)
+    const paymentId = detail!.payments[0].id
+
+    const updated = await updateRentalPayment(paymentId, { amount: 4000, date: '2026-11-05' }, actor, 'Montant corrigé')
+    expect(updated.amount).toBe(4000)
+
+    const [rentalRow] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rental.id))
+    expect(rentalRow.amountPaid).toBe(4000)
+    expect(rentalRow.paymentStatus).toBe('partial')
+
+    const [log] = await db.select().from(auditLog).where(and(eq(auditLog.entityType, 'rental_payment'), eq(auditLog.entityId, paymentId)))
+    expect(log.action).toBe('update')
+    expect(log.reason).toBe('Montant corrigé')
+  })
+
+  it('removes a payment from the total and hides it from the history', async () => {
+    const vehicle = await makeVehicle('PayDel')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Suppression', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+
+    // 20 000 covers this rental in full (2 days × 10 000); the extra 3 000 is the mistake to undo,
+    // so removing it must leave the rental fully paid rather than knocking it back to partial.
+    await recordRentalPayment(rental.id, 20000, { date: '2026-11-02' })
+    await recordRentalPayment(rental.id, 3000, { date: '2026-11-04' })
+    const detail = await getRentalDetail(rental.id)
+    expect(detail!.paymentStatus).toBe('paid')
+    const toDelete = detail!.payments[1].id
+
+    await deleteRentalPayment(toDelete, actor, 'Erreur de saisie')
+
+    const after = await getRentalDetail(rental.id)
+    expect(after!.payments).toHaveLength(1)
+    expect(after!.amountPaid).toBe(20000)
+    expect(after!.paymentStatus).toBe('paid')
+
+    await expect(deleteRentalPayment(toDelete, actor)).rejects.toThrow(/introuvable/i)
   })
 })
 

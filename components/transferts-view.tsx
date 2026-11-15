@@ -7,8 +7,7 @@ import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { downloadCsv } from '@/lib/download-csv'
 import { fetchJson } from '@/lib/fetch-json'
-
-const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
+import { PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 type Transfer = {
   id: number
@@ -56,6 +55,7 @@ function NewTransferForm({
   const [fromStoreId, setFromStoreId] = useState('')
   const [toStoreId, setToStoreId] = useState('')
   const [items, setItems] = useState<ItemRow[]>([{ productId: '', quantity: '1' }])
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -91,6 +91,7 @@ function NewTransferForm({
         body: JSON.stringify({
           fromStoreId,
           toStoreId,
+          date: date || undefined,
           items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
         }),
       })
@@ -140,13 +141,14 @@ function NewTransferForm({
       ))}
       <button type="button" className="item-add-link" onClick={addItem}><Plus size={13} /> Ajouter un article</button>
 
+      <div className="form-field" style={{ marginTop: 14 }}><label>Date du transfert</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Lancer le transfert'}</button></div>
     </form>
   )
 }
 
 export function TransfertsView() {
-  const [period, setPeriod] = useState(periods[1])
+  const periodFilter = usePeriodFilter()
   const [store, setStore] = useState('Tous les magasins')
   const [search, setSearch] = useState('')
   const [data, setData] = useState<TransfersData | null>(null)
@@ -157,13 +159,17 @@ export function TransfertsView() {
   const [modalOpen, setModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [receivingId, setReceivingId] = useState<number | null>(null)
+  const [receivingTransfer, setReceivingTransfer] = useState<Transfer | null>(null)
+  const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().slice(0, 10))
+
+  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
 
   useEffect(() => {
+    if (!periodReady) return
     let cancelled = false
     setLoading(true)
     setError('')
-    const params = new URLSearchParams({ period, store })
-    fetchJson<TransfersData>(`/api/transferts?${params.toString()}`)
+    fetchJson<TransfersData>(`/api/transferts?${periodParams({ store }).toString()}`)
       .then((json) => {
         if (!cancelled) setData(json)
       })
@@ -176,7 +182,8 @@ export function TransfertsView() {
     return () => {
       cancelled = true
     }
-  }, [period, store, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, isCustom, customFrom, customTo, periodReady, store, refreshKey])
 
   useEffect(() => {
     fetchJson<{ stores: StoreOption[] }>('/api/magasins').then((json) => setStoreOptions(json.stores)).catch(() => {})
@@ -191,12 +198,17 @@ export function TransfertsView() {
     return rows.filter((row) => row.reference.toLowerCase().includes(query) || row.fromStore.toLowerCase().includes(query) || row.toStore.toLowerCase().includes(query))
   }, [data, search])
 
-  async function handleReceive(id: number) {
+  async function handleReceive(id: number, date: string) {
     setReceivingId(id)
     setError('')
     try {
-      const res = await fetch(`/api/transferts/${id}/receive`, { method: 'POST' })
+      const res = await fetch(`/api/transferts/${id}/receive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: date || undefined }),
+      })
       if (res.ok) {
+        setReceivingTransfer(null)
         setRefreshKey((key) => key + 1)
       } else {
         const json = await res.json().catch(() => ({}))
@@ -210,11 +222,11 @@ export function TransfertsView() {
   }
 
   return (
-    <AppShell breadcrumb="Pilotage" section="Transferts" onExport={() => downloadCsv(`/api/transferts?${new URLSearchParams({ period, store, format: 'csv' }).toString()}`, 'transferts.csv')}>
+    <AppShell breadcrumb="Pilotage" section="Transferts" onExport={() => downloadCsv(`/api/transferts?${periodParams({ store, format: 'csv' }).toString()}`, 'transferts.csv')}>
       <section className="page-heading">
         <div><p className="eyebrow">LOGISTIQUE</p><h1>Transferts <span>entre magasins</span></h1><p className="heading-subtitle">Suivez les transferts de stock entre magasins.</p></div>
         <div className="filter-row">
-          <label className="select-wrap"><span className="sr-only">Période</span><select value={period} onChange={(event) => setPeriod(event.target.value)}>{periods.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
+          <PeriodFilter state={periodFilter} />
           <label className="select-wrap"><span className="sr-only">Magasin</span><select value={store} onChange={(event) => setStore(event.target.value)}>{stores.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
         </div>
       </section>
@@ -261,7 +273,15 @@ export function TransfertsView() {
                   <td data-label="Statut"><span className={`badge ${statusBadge[transfer.status]}`}>{statusLabel[transfer.status]}</span></td>
                   <td>
                     {transfer.status !== 'completed' && (
-                      <button className="btn-ghost" disabled={receivingId === transfer.id} onClick={() => handleReceive(transfer.id)}>
+                      <button
+                        className="btn-ghost"
+                        disabled={receivingId === transfer.id}
+                        onClick={() => {
+                          setError('')
+                          setReceivedDate(new Date().toISOString().slice(0, 10))
+                          setReceivingTransfer(transfer)
+                        }}
+                      >
                         {receivingId === transfer.id ? 'Réception...' : 'Marquer reçu'}
                       </button>
                     )}
@@ -273,6 +293,32 @@ export function TransfertsView() {
           {!loading && filteredTransfers.length === 0 && <p className="table-empty">Aucun transfert sur cette période.</p>}
         </div>
       </div>
+
+      <Modal
+        open={receivingTransfer !== null}
+        onClose={() => setReceivingTransfer(null)}
+        title="Confirmer la réception"
+        subtitle={receivingTransfer ? `${receivingTransfer.reference} — ${receivingTransfer.fromStore} → ${receivingTransfer.toStore}` : ''}
+      >
+        {receivingTransfer && (
+          <div>
+            <p className="section-subtitle">
+              Le stock sera ajouté à {receivingTransfer.toStore}. Indiquez la date d’arrivée réelle si la marchandise est
+              arrivée un autre jour.
+            </p>
+            <div className="form-field">
+              <label>Date de réception</label>
+              <input type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn-secondary" onClick={() => setReceivingTransfer(null)} disabled={receivingId !== null}>Annuler</button>
+              <button type="button" className="btn-primary" disabled={receivingId !== null} onClick={() => handleReceive(receivingTransfer.id, receivedDate)}>
+                {receivingId !== null ? 'Réception...' : 'Confirmer la réception'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nouveau transfert" subtitle="Déplacez du stock d’un magasin vers un autre." wide>
         <NewTransferForm

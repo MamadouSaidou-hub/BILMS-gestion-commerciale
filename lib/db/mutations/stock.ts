@@ -4,7 +4,7 @@ import { stockCounts, stockLevels, stockMovements, stockReceptions } from '../sc
 import { getQuantity } from './shared'
 import { writeAuditLog, type Actor } from './audit'
 
-export async function recordStockCount(input: { storeId: number; productId: number; countedQty: number; countedBy: string }) {
+export async function recordStockCount(input: { storeId: number; productId: number; countedQty: number; countedBy: string; date?: string | null }) {
   if (input.countedQty < 0) {
     throw new Error('La quantité comptée ne peut pas être négative.')
   }
@@ -22,6 +22,7 @@ export async function recordStockCount(input: { storeId: number; productId: numb
         countedQty: input.countedQty,
         variance,
         countedBy: input.countedBy,
+        date: input.date ?? null,
       })
       .returning()
 
@@ -48,7 +49,7 @@ export async function recordStockCount(input: { storeId: number; productId: numb
  * variance at the time) — editing/deleting it applies the *change* in variance on top of whatever
  * the current quantity is now, rather than resetting to an absolute value, so later movements
  * (a sale, another count...) aren't silently undone. */
-export async function updateStockCount(id: number, input: { countedQty: number }, actor: Actor, reason?: string) {
+export async function updateStockCount(id: number, input: { countedQty: number; date?: string | null }, actor: Actor, reason?: string) {
   if (input.countedQty < 0) {
     throw new Error('La quantité comptée ne peut pas être négative.')
   }
@@ -69,7 +70,7 @@ export async function updateStockCount(id: number, input: { countedQty: number }
 
     const [updated] = await tx
       .update(stockCounts)
-      .set({ countedQty: input.countedQty, variance: newVariance })
+      .set({ countedQty: input.countedQty, variance: newVariance, date: input.date ?? null })
       .where(eq(stockCounts.id, id))
       .returning()
 

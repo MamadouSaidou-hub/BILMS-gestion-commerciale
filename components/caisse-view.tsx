@@ -1,15 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Banknote, ChevronDown, Landmark, Pencil, Plus, Smartphone, Star, TrendingDown, TrendingUp, Trash2, Wallet } from 'lucide-react'
+import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Banknote, Landmark, Pencil, Plus, Smartphone, Star, TrendingDown, TrendingUp, Trash2, Wallet } from 'lucide-react'
 import { AppShell } from '@/components/app-shell'
 import { Modal } from '@/components/modal'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 import { downloadCsv } from '@/lib/download-csv'
 import { EXPENSE_CATEGORIES } from '@/lib/expense-categories'
-
-const periods = ['Aujourd’hui', '7 derniers jours', 'Ce mois-ci']
+import { PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 type CashAccountType = 'cash' | 'bank' | 'mobile_money' | 'other'
 type CashAccount = { id: number; name: string; type: CashAccountType; balance: number; balanceFormatted: string; isDefault: boolean }
@@ -23,6 +22,7 @@ type Movement = {
   description: string | null
   amount: number
   amountFormatted: string
+  ownDate: string | null
 }
 type ExpenseBreakdownRow = { category: string; amount: number; amountFormatted: string; pct: number }
 type CaisseData = {
@@ -118,6 +118,7 @@ function NewMovementForm({ type, accounts, onCreated }: { type: 'expense' | 'dep
   const [category, setCategory] = useState('')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -138,7 +139,7 @@ function NewMovementForm({ type, accounts, onCreated }: { type: 'expense' | 'dep
       const res = await fetch('/api/caisses/mouvements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cashAccountId, type, category, description, amount }),
+        body: JSON.stringify({ cashAccountId, type, category, description, amount, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -175,7 +176,10 @@ function NewMovementForm({ type, accounts, onCreated }: { type: 'expense' | 'dep
           )}
         </div>
       </div>
-      <div className="form-field"><label>Description (optionnel)</label><input value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Description (optionnel)</label><input value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+      </div>
       <div className="form-actions">
         <button type="submit" className="btn-primary" disabled={submitting}>
           {submitting ? 'Enregistrement...' : type === 'expense' ? 'Enregistrer la dépense' : 'Enregistrer le dépôt'}
@@ -190,6 +194,7 @@ function EditMovementForm({ movement, accounts, onSaved }: { movement: Movement;
   const [category, setCategory] = useState(movement.category)
   const [description, setDescription] = useState(movement.description ?? '')
   const [amount, setAmount] = useState(String(movement.amount))
+  const [date, setDate] = useState((movement.ownDate ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -207,7 +212,7 @@ function EditMovementForm({ movement, accounts, onSaved }: { movement: Movement;
       const res = await fetch(`/api/caisses/mouvements/${movement.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, category, description, amount, reason: reason || undefined }),
+        body: JSON.stringify({ type, category, description, amount, date: date || null, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -246,7 +251,10 @@ function EditMovementForm({ movement, accounts, onSaved }: { movement: Movement;
           <input required value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Ex : Vente comptant, Apport..." />
         )}
       </div>
-      <div className="form-field"><label>Description (optionnel)</label><input value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Date</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Description (optionnel)</label><input value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+      </div>
       <div className="form-field">
         <label>Motif de la correction (optionnel)</label>
         <input placeholder="Ex. montant mal saisi" value={reason} onChange={(event) => setReason(event.target.value)} />
@@ -261,6 +269,7 @@ function TransferForm({ accounts, onCreated }: { accounts: CashAccount[]; onCrea
   const [toId, setToId] = useState('')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -286,7 +295,7 @@ function TransferForm({ accounts, onCreated }: { accounts: CashAccount[]; onCrea
       const res = await fetch('/api/caisses/transfert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromId, toId, amount, description: description || undefined }),
+        body: JSON.stringify({ fromId, toId, amount, description: description || undefined, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -318,7 +327,10 @@ function TransferForm({ accounts, onCreated }: { accounts: CashAccount[]; onCrea
           </select>
         </div>
       </div>
-      <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Montant (GNF)</label><input required type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
+        <div className="form-field"><label>Date du transfert</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-field"><label>Description (optionnel)</label><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ex : Dépôt bancaire hebdomadaire" /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Transfert...' : 'Transférer'}</button></div>
     </form>
@@ -326,7 +338,7 @@ function TransferForm({ accounts, onCreated }: { accounts: CashAccount[]; onCrea
 }
 
 export function CaisseView() {
-  const [period, setPeriod] = useState(periods[1])
+  const periodFilter = usePeriodFilter()
   const [data, setData] = useState<CaisseData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -371,11 +383,14 @@ export function CaisseView() {
     }
   }
 
+  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+
   useEffect(() => {
+    if (!periodReady) return
     let cancelled = false
     setLoading(true)
     setError('')
-    fetchJson<CaisseData>(`/api/caisses?${new URLSearchParams({ period }).toString()}`)
+    fetchJson<CaisseData>(`/api/caisses?${periodParams().toString()}`)
       .then((json) => {
         if (!cancelled) setData(json)
       })
@@ -388,16 +403,17 @@ export function CaisseView() {
     return () => {
       cancelled = true
     }
-  }, [period, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, isCustom, customFrom, customTo, periodReady, refreshKey])
 
   const accounts = data?.accounts ?? []
 
   return (
-    <AppShell breadcrumb="Boutique" section="Caisse & Dépenses" onExport={() => downloadCsv(`/api/caisses?${new URLSearchParams({ period, format: 'csv' }).toString()}`, 'caisse-mouvements.csv')}>
+    <AppShell breadcrumb="Boutique" section="Caisse & Dépenses" onExport={() => downloadCsv(`/api/caisses?${periodParams({ format: 'csv' }).toString()}`, 'caisse-mouvements.csv')}>
       <section className="page-heading">
         <div><p className="eyebrow">FINANCES</p><h1>Caisse <span>et dépenses</span></h1><p className="heading-subtitle">Suivez vos comptes (espèces, banque, Mobile Money) et vos dépenses.</p></div>
         <div className="filter-row">
-          <label className="select-wrap"><span className="sr-only">Période</span><select value={period} onChange={(event) => setPeriod(event.target.value)}>{periods.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
+          <PeriodFilter state={periodFilter} />
         </div>
       </section>
 

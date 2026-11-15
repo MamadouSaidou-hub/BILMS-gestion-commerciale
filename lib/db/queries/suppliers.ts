@@ -89,13 +89,15 @@ export async function getSupplierPaymentHistory(supplierId: number) {
     .select()
     .from(supplierPayments)
     .where(and(eq(supplierPayments.supplierId, supplierId), isNull(supplierPayments.deletedAt)))
-    .orderBy(desc(supplierPayments.createdAt))
+    .orderBy(desc(sql`${effectiveDate(supplierPayments.date, supplierPayments.createdAt)}`))
 
   return rows.map((row) => ({
     id: row.id,
     amount: row.amount,
     amountFormatted: formatFcfa(row.amount),
     method: row.method,
+    date: row.date,
+    effectiveDate: row.date ?? row.createdAt,
     createdAt: row.createdAt,
   }))
 }

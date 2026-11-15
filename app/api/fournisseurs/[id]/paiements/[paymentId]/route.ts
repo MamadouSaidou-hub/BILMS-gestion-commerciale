@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { deleteSupplierPayment, updateSupplierPayment } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ paymentId: string }> }) {
@@ -17,12 +18,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pa
   const method = body.method as 'cash' | 'mobile_money' | 'bank_transfer' | 'check'
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
 
+  const date = body.date ? String(body.date) : null
+
   if (!Number.isFinite(amount) || amount <= 0 || !['cash', 'mobile_money', 'bank_transfer', 'check'].includes(method)) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
+  if (date !== null && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
-    const payment = await updateSupplierPayment(id, { amount, method }, { userId: ctx.userId, userName: ctx.userName }, reason)
+    const payment = await updateSupplierPayment(id, { amount, method, date }, { userId: ctx.userId, userName: ctx.userName }, reason)
     return NextResponse.json({ payment })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

@@ -1,9 +1,9 @@
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { rentalCharges, rentalClients, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalCharges, rentalClients, rentalPayments, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { daysUntil } from '@/lib/dates'
-import { periodRange, type PeriodKey } from '@/lib/period'
+import { periodRange, type CustomRange, type PeriodKey } from '@/lib/period'
 
 export async function getVehiclesOverview() {
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
@@ -163,22 +163,29 @@ export async function getRentalClientDetail(clientId: number) {
   }
 }
 
-export async function getLocationReportsOverview(period: PeriodKey) {
-  const { start } = periodRange(period)
+export async function getLocationReportsOverview(period: PeriodKey, custom?: CustomRange) {
+  const { start, end } = periodRange(period, custom)
+  // Only a custom range gets an upper bound — the named periods stay open-ended so a rental or
+  // expense dated slightly ahead still shows up rather than silently vanishing.
+  const withinPeriod = (value: string) => {
+    const date = new Date(value)
+    return date >= start && (period !== 'custom' || date <= end)
+  }
 
   const vehicleRows = await db.select().from(vehicles).orderBy(vehicles.name)
   const rentalRows = await db.select().from(vehicleRentals).where(isNull(vehicleRentals.deletedAt))
   const expenseRows = await db.select().from(vehicleExpenses).where(isNull(vehicleExpenses.deletedAt))
   const clientRows = await db.select().from(rentalClients).orderBy(rentalClients.name)
 
-  // No payment-date history exists on a rental (see getVehiclesOverview's comment) — createdAt
-  // (when the rental was booked) is the best available proxy for "on this period." Labeled in the
-  // UI as "réservées sur la période," never as "encaissées," so this approximation stays honest.
-  const periodRentals = rentalRows.filter((rental) => new Date(rental.createdAt) >= start)
+  // Keyed on the rental's own start date (the day the vehicle actually went out), falling back to
+  // createdAt for older rows — a rental entered after the fact belongs to the period it ran in,
+  // not the day it was typed in. Still labeled in the UI as "réservées sur la période," never as
+  // "encaissées," since no per-payment date history exists on a rental (see getVehiclesOverview).
+  const periodRentals = rentalRows.filter((rental) => withinPeriod(rental.startDate ?? rental.createdAt))
   const totalBooked = periodRentals.reduce((sum, rental) => sum + rental.totalAmount, 0)
   const totalCollectedInPeriod = periodRentals.reduce((sum, rental) => sum + rental.amountPaid, 0)
 
-  const periodExpenses = expenseRows.filter((expense) => new Date(expense.date) >= start)
+  const periodExpenses = expenseRows.filter((expense) => withinPeriod(expense.date))
   const totalExpenses = periodExpenses.reduce((sum, expense) => sum + expense.amount, 0)
 
   const expensesByCategoryMap = new Map<string, number>()
@@ -221,6 +228,11 @@ export async function getRentalDetail(rentalId: number) {
   if (!rental) return null
   const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, rental.vehicleId))
   const chargeRows = await db.select().from(rentalCharges).where(eq(rentalCharges.rentalId, rentalId)).orderBy(rentalCharges.id)
+  const paymentRows = await db
+    .select()
+    .from(rentalPayments)
+    .where(and(eq(rentalPayments.rentalId, rentalId), isNull(rentalPayments.deletedAt)))
+    .orderBy(rentalPayments.id)
 
   const days = Math.max(1, Math.round((new Date(rental.plannedEndDate).getTime() - new Date(rental.startDate).getTime()) / (24 * 60 * 60 * 1000)))
 
@@ -253,6 +265,13 @@ export async function getRentalDetail(rentalId: number) {
     departureCity: rental.departureCity,
     destinationCity: rental.destinationCity,
     charges,
+    payments: paymentRows.map((payment) => ({
+      id: payment.id,
+      amount: payment.amount,
+      amountFormatted: formatFcfa(payment.amount),
+      date: payment.date,
+      effectiveDate: payment.date ?? payment.createdAt,
+    })),
     grandTotal,
     grandTotalFormatted: formatFcfa(grandTotal),
     amountPaid: rental.amountPaid,
