@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { rentalCharges, rentalClients, rentalPayments, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
+import { rentalCharges, rentalClients, rentalPayments, rentalRenewals, vehicleExpenses, vehicleRentals, vehicles } from '../schema'
 import { addDays } from '@/lib/dates'
 import { writeAuditLog, type Actor } from './audit'
 
@@ -162,7 +162,7 @@ export async function closeRental(rentalId: number, input: { endDate: string }) 
   })
 }
 
-export async function renewRental(rentalId: number, additionalDays: number) {
+export async function renewRental(rentalId: number, additionalDays: number, input: { date?: string | null } = {}) {
   if (additionalDays <= 0) {
     throw new Error('Le nombre de jours doit être supérieur à zéro.')
   }
@@ -187,6 +187,13 @@ export async function renewRental(rentalId: number, additionalDays: number) {
       .set({ plannedEndDate: addDays(rental.plannedEndDate, additionalDays), totalAmount, paymentStatus })
       .where(eq(vehicleRentals.id, rentalId))
       .returning()
+
+    await tx.insert(rentalRenewals).values({
+      rentalId,
+      additionalDays,
+      addedAmount: rental.dailyRate * additionalDays,
+      date: input.date ?? null,
+    })
     return updated
   })
 }

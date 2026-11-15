@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { auditLog, buildingExpenses, buildings, leases, rentPayments, tenants, units } from '@/lib/db/schema'
+import { auditLog, buildingExpenses, buildings, leaseRenewals, leases, rentPayments, tenants, units } from '@/lib/db/schema'
 import {
   createBuilding,
   createLease,
@@ -55,6 +55,8 @@ afterAll(async () => {
       await db.delete(auditLog).where(and(eq(auditLog.entityType, 'rent_payment'), eq(auditLog.entityId, payment.id)))
     }
     await db.delete(rentPayments).where(eq(rentPayments.leaseId, id))
+    // renewLease now records each extension as a dated row — clean those up too.
+    await db.delete(leaseRenewals).where(eq(leaseRenewals.leaseId, id))
     await db.delete(leases).where(eq(leases.id, id))
   }
   for (const id of unitIds) {
@@ -269,8 +271,15 @@ describe('renewLease', () => {
     leaseIds.push(lease.id)
     expect(lease.endDate).toBe('2027-05-01')
 
-    const renewed = await renewLease(lease.id, 6)
+    const renewed = await renewLease(lease.id, 6, { date: '2027-04-20' })
     expect(renewed.endDate).toBe('2027-11-01')
+
+    // The extension is kept as its own dated operation, not just a shifted end date.
+    const renewals = await db.select().from(leaseRenewals).where(eq(leaseRenewals.leaseId, lease.id))
+    expect(renewals).toHaveLength(1)
+    expect(renewals[0].additionalMonths).toBe(6)
+    expect(renewals[0].newEndDate).toBe('2027-11-01')
+    expect(renewals[0].date).toBe('2027-04-20')
   })
 
   it('rejects renewing a lease that already ended', async () => {

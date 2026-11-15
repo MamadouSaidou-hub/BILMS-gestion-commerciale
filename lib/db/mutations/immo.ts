@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { buildingExpenses, buildings, leases, rentPayments, tenants, units } from '../schema'
+import { buildingExpenses, buildings, leaseRenewals, leases, rentPayments, tenants, units } from '../schema'
 import { addMonths } from '@/lib/dates'
 import { writeAuditLog, type Actor } from './audit'
 
@@ -287,25 +287,27 @@ export async function updateLeaseContractTerms(
   return updated
 }
 
-export async function renewLease(leaseId: number, additionalMonths: number) {
+export async function renewLease(leaseId: number, additionalMonths: number, input: { date?: string | null } = {}) {
   if (additionalMonths <= 0) {
     throw new Error('Le nombre de mois doit être supérieur à zéro.')
   }
 
-  const [lease] = await db.select().from(leases).where(eq(leases.id, leaseId))
-  if (!lease) {
-    throw new Error('Bail introuvable.')
-  }
-  if (lease.status !== 'active') {
-    throw new Error('Seul un bail actif peut être renouvelé.')
-  }
+  return db.transaction(async (tx) => {
+    const [lease] = await tx.select().from(leases).where(eq(leases.id, leaseId)).for('update')
+    if (!lease) {
+      throw new Error('Bail introuvable.')
+    }
+    if (lease.status !== 'active') {
+      throw new Error('Seul un bail actif peut être renouvelé.')
+    }
 
-  const [updated] = await db
-    .update(leases)
-    .set({ endDate: addMonths(lease.endDate, additionalMonths) })
-    .where(eq(leases.id, leaseId))
-    .returning()
-  return updated
+    const newEndDate = addMonths(lease.endDate, additionalMonths)
+    const [updated] = await tx.update(leases).set({ endDate: newEndDate }).where(eq(leases.id, leaseId)).returning()
+
+    await tx.insert(leaseRenewals).values({ leaseId, additionalMonths, newEndDate, date: input.date ?? null })
+
+    return updated
+  })
 }
 
 export async function endLease(leaseId: number, settlement?: { depositReturnedAmount?: number; depositNotes?: string | null }) {

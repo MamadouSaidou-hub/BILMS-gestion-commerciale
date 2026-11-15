@@ -599,6 +599,25 @@ export const rentalPayments = pgTable(
   (table) => [index('rental_payments_rental_id_idx').on(table.rentalId)],
 )
 
+// One row per extension of a rental. The extension's own effect still lives on the rental
+// (`plannedEndDate`/`totalAmount`); this records *when* the renewal was agreed and what it added,
+// so a renewal entered after the fact is attributed to the day it happened.
+export const rentalRenewals = pgTable(
+  'rental_renewals',
+  {
+    id: serial('id').primaryKey(),
+    rentalId: integer('rental_id')
+      .notNull()
+      .references(() => vehicleRentals.id, { onDelete: 'cascade' }),
+    additionalDays: integer('additional_days').notNull(),
+    addedAmount: doublePrecision('added_amount').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
+    ...timestamps,
+  },
+  (table) => [index('rental_renewals_rental_id_idx').on(table.rentalId)],
+)
+
 export const rentalCharges = pgTable(
   'rental_charges',
   {
@@ -715,6 +734,24 @@ export const leases = pgTable('leases', {
   guarantorCinValidUntil: text('guarantor_cin_valid_until'),
   ...timestamps,
 })
+
+// Lease-side mirror of `rentalRenewals` — records when a lease extension was agreed and by how
+// many months, since the extension itself only moves the lease's `endDate`.
+export const leaseRenewals = pgTable(
+  'lease_renewals',
+  {
+    id: serial('id').primaryKey(),
+    leaseId: integer('lease_id')
+      .notNull()
+      .references(() => leases.id, { onDelete: 'cascade' }),
+    additionalMonths: integer('additional_months').notNull(),
+    newEndDate: text('new_end_date').notNull(),
+    // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
+    date: text('date'),
+    ...timestamps,
+  },
+  (table) => [index('lease_renewals_lease_id_idx').on(table.leaseId)],
+)
 
 export const rentPaymentStatus = ['paid', 'late', 'unpaid'] as const
 export const rentPayments = pgTable('rent_payments', {

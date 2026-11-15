@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { auditLog, rentalCharges, rentalClients, rentalPayments, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
+import { auditLog, rentalCharges, rentalClients, rentalPayments, rentalRenewals, vehicleExpenses, vehicleRentals, vehicles } from '@/lib/db/schema'
 import {
   addRentalCharge,
   createRental,
@@ -56,6 +56,8 @@ afterAll(async () => {
       await db.delete(auditLog).where(and(eq(auditLog.entityType, 'rental_payment'), eq(auditLog.entityId, payment.id)))
     }
     await db.delete(rentalPayments).where(eq(rentalPayments.rentalId, id))
+    // renewRental now records each extension as a dated row — clean those up too.
+    await db.delete(rentalRenewals).where(eq(rentalRenewals.rentalId, id))
     await db.delete(vehicleRentals).where(eq(vehicleRentals.id, id))
   }
   for (const id of vehicleIds) {
@@ -262,6 +264,26 @@ describe('addRentalCharge / removeRentalCharge', () => {
     const afterCharge = await addRentalCharge(rental.id, { description: 'Carburant', quantity: 1, unitPrice: 5000 })
     const [rentalRow] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, afterCharge.rentalId))
     expect(rentalRow.paymentStatus).toBe('partial')
+  })
+})
+
+describe('renewRental records the extension as a dated operation', () => {
+  it('keeps what each renewal added, and the date it was agreed on', async () => {
+    const vehicle = await makeVehicle('Renew')
+    const rental = await createRental({ vehicleId: vehicle.id, clientName: 'Client Renouvellement', startDate: '2026-11-01', days: 2 })
+    rentalIds.push(rental.id)
+
+    await renewRental(rental.id, 3, { date: '2026-11-03' })
+
+    const renewals = await db.select().from(rentalRenewals).where(eq(rentalRenewals.rentalId, rental.id))
+    expect(renewals).toHaveLength(1)
+    expect(renewals[0].additionalDays).toBe(3)
+    expect(renewals[0].date).toBe('2026-11-03')
+    // 3 extra days at the rental's own daily rate — the same amount added to the rental total.
+    expect(renewals[0].addedAmount).toBe(rental.dailyRate * 3)
+
+    const [rentalRow] = await db.select().from(vehicleRentals).where(eq(vehicleRentals.id, rental.id))
+    expect(rentalRow.totalAmount).toBe(rental.totalAmount + rental.dailyRate * 3)
   })
 })
 

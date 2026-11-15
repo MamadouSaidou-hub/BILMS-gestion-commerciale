@@ -259,6 +259,7 @@ function CloseRentalForm({ rental, onDone }: { rental: Rental; onDone: () => voi
 
 function RenewRentalForm({ rental, onDone }: { rental: Rental; onDone: () => void }) {
   const [days, setDays] = useState('1')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -270,7 +271,7 @@ function RenewRentalForm({ rental, onDone }: { rental: Rental; onDone: () => voi
       const res = await fetch(`/api/locations-voiture/${rental.id}/renouveler`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days }),
+        body: JSON.stringify({ days, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -289,7 +290,10 @@ function RenewRentalForm({ rental, onDone }: { rental: Rental; onDone: () => voi
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">Fin prévue actuelle : <strong>{rental.plannedEndDate}</strong></p>
-      <div className="form-field"><label>Jours supplémentaires</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Jours supplémentaires</label><input required type="number" min="1" value={days} onChange={(event) => setDays(event.target.value)} /></div>
+        <div className="form-field"><label>Date du renouvellement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Renouvellement...' : 'Renouveler la location'}</button></div>
     </form>
   )

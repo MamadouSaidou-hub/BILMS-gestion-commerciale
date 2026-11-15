@@ -259,6 +259,7 @@ function NewLeaseForm({ unit, tenantOptions, onCreated }: { unit: Unit; tenantOp
 
 function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; currentEndDate: string; onDone: () => void }) {
   const [months, setMonths] = useState('12')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -270,7 +271,7 @@ function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; 
       const res = await fetch(`/api/baux/${leaseId}/renouveler`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ months }),
+        body: JSON.stringify({ months, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -289,7 +290,10 @@ function RenewLeaseForm({ leaseId, currentEndDate, onDone }: { leaseId: number; 
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">Fin actuelle : <strong>{currentEndDate}</strong></p>
-      <div className="form-field"><label>Mois supplémentaires</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Mois supplémentaires</label><input required type="number" min="1" value={months} onChange={(event) => setMonths(event.target.value)} /></div>
+        <div className="form-field"><label>Date du renouvellement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Renouvellement...' : 'Renouveler le bail'}</button></div>
     </form>
   )
