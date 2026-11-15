@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, ne } from 'drizzle-orm'
 import { db } from '../client'
-import { paymentAllocations, payments, paymentMethod, receivables, supplierPayables, supplierPayments } from '../schema'
+import { paymentAllocations, payments, paymentMethod, receivables, supplierPaymentAllocations, supplierPayables, supplierPayments } from '../schema'
 import { writeAuditLog, type Actor } from './audit'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -133,28 +133,118 @@ export async function deletePayment(id: number, actor: Actor, reason?: string) {
   })
 }
 
-export async function recordSupplierPayment(input: { supplierId: number; amount: number; method: (typeof paymentMethod)[number] }) {
-  await db.insert(supplierPayments).values({
-    supplierId: input.supplierId,
-    amount: input.amount,
-    method: input.method,
-  })
-
-  let remaining = input.amount
-  const openPayables = await db
+/** Supplier-side mirror of `allocateToReceivables`/`reversePaymentAllocations` above. */
+async function allocateToPayables(tx: Tx, paymentId: number, supplierId: number, amount: number) {
+  let remaining = amount
+  const openPayables = await tx
     .select()
     .from(supplierPayables)
-    .where(and(eq(supplierPayables.supplierId, input.supplierId), ne(supplierPayables.status, 'paid')))
+    .where(and(eq(supplierPayables.supplierId, supplierId), ne(supplierPayables.status, 'paid')))
     .orderBy(asc(supplierPayables.dueDate))
 
   for (const payable of openPayables) {
     if (remaining <= 0) break
-    if (remaining >= payable.amount) {
-      remaining -= payable.amount
-      await db.update(supplierPayables).set({ amount: 0, status: 'paid' }).where(eq(supplierPayables.id, payable.id))
+    const applied = Math.min(remaining, payable.amount)
+    remaining -= applied
+    if (applied >= payable.amount) {
+      await tx.update(supplierPayables).set({ amount: 0, status: 'paid' }).where(eq(supplierPayables.id, payable.id))
     } else {
-      await db.update(supplierPayables).set({ amount: payable.amount - remaining }).where(eq(supplierPayables.id, payable.id))
-      remaining = 0
+      await tx.update(supplierPayables).set({ amount: payable.amount - applied }).where(eq(supplierPayables.id, payable.id))
+    }
+    await tx.insert(supplierPaymentAllocations).values({ paymentId, payableId: payable.id, amount: applied })
+  }
+}
+
+async function reverseSupplierPaymentAllocations(tx: Tx, paymentId: number) {
+  const allocations = await tx.select().from(supplierPaymentAllocations).where(eq(supplierPaymentAllocations.paymentId, paymentId))
+  for (const allocation of allocations) {
+    const [payable] = await tx.select().from(supplierPayables).where(eq(supplierPayables.id, allocation.payableId))
+    if (payable) {
+      await tx
+        .update(supplierPayables)
+        .set({ amount: payable.amount + allocation.amount, status: payable.status === 'paid' ? 'pending' : payable.status })
+        .where(eq(supplierPayables.id, payable.id))
     }
   }
+  await tx.delete(supplierPaymentAllocations).where(eq(supplierPaymentAllocations.paymentId, paymentId))
+}
+
+export async function recordSupplierPayment(input: { supplierId: number; amount: number; method: (typeof paymentMethod)[number] }) {
+  return db.transaction(async (tx) => {
+    const [payment] = await tx
+      .insert(supplierPayments)
+      .values({ supplierId: input.supplierId, amount: input.amount, method: input.method })
+      .returning()
+
+    await allocateToPayables(tx, payment.id, input.supplierId, input.amount)
+    return payment
+  })
+}
+
+export async function updateSupplierPayment(
+  id: number,
+  input: { amount: number; method: (typeof paymentMethod)[number] },
+  actor: Actor,
+  reason?: string,
+) {
+  if (input.amount <= 0) {
+    throw new Error('Le montant doit être supérieur à zéro.')
+  }
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(supplierPayments).where(and(eq(supplierPayments.id, id), isNull(supplierPayments.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Paiement introuvable.')
+    }
+
+    await reverseSupplierPaymentAllocations(tx, id)
+
+    const [updated] = await tx
+      .update(supplierPayments)
+      .set({ amount: input.amount, method: input.method })
+      .where(eq(supplierPayments.id, id))
+      .returning()
+
+    await allocateToPayables(tx, id, existing.supplierId, input.amount)
+
+    await writeAuditLog(tx, {
+      entityType: 'supplier_payment',
+      entityId: id,
+      action: 'update',
+      actor,
+      reason,
+      beforeData: existing,
+      afterData: updated,
+    })
+
+    return updated
+  })
+}
+
+export async function deleteSupplierPayment(id: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(supplierPayments).where(and(eq(supplierPayments.id, id), isNull(supplierPayments.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Paiement introuvable.')
+    }
+
+    await reverseSupplierPaymentAllocations(tx, id)
+
+    const [deleted] = await tx
+      .update(supplierPayments)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(supplierPayments.id, id))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'supplier_payment',
+      entityId: id,
+      action: 'delete',
+      actor,
+      reason,
+      beforeData: existing,
+    })
+
+    return deleted
+  })
 }

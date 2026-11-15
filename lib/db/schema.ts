@@ -303,6 +303,7 @@ export const supplierDeliveries = pgTable(
     sackCount: integer('sack_count').notNull(),
     tonnage: doublePrecision('tonnage'),
     totalAmount: doublePrecision('total_amount').notNull(),
+    deletedAt: text('deleted_at'),
     ...timestamps,
   },
   (table) => [
@@ -342,9 +343,29 @@ export const supplierPayments = pgTable(
       .references(() => suppliers.id, { onDelete: 'cascade' }),
     amount: doublePrecision('amount').notNull(),
     method: text('method', { enum: paymentMethod }).notNull().default('cash'),
+    deletedAt: text('deleted_at'),
     ...timestamps,
   },
   (table) => [index('supplier_payments_supplier_id_idx').on(table.supplierId), index('supplier_payments_created_at_idx').on(table.createdAt)],
+)
+
+// Mirrors `paymentAllocations` (client side) — records exactly which payable(s) a supplier
+// payment settled, and by how much, so editing/deleting it can reverse precisely instead of
+// guessing. See that table's comment for the full rationale.
+export const supplierPaymentAllocations = pgTable(
+  'supplier_payment_allocations',
+  {
+    id: serial('id').primaryKey(),
+    paymentId: integer('payment_id')
+      .notNull()
+      .references(() => supplierPayments.id, { onDelete: 'cascade' }),
+    payableId: integer('payable_id')
+      .notNull()
+      .references(() => supplierPayables.id, { onDelete: 'cascade' }),
+    amount: doublePrecision('amount').notNull(),
+    ...timestamps,
+  },
+  (table) => [index('supplier_payment_allocations_payment_id_idx').on(table.paymentId)],
 )
 
 export const discountPartyType = ['supplier', 'client'] as const
