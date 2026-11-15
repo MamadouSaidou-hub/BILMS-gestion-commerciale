@@ -4,6 +4,8 @@ import { db } from '@/lib/db/client'
 import { auditLog, clients, payments, products, receivables, saleItems, sales, stockLevels, stockMovements, stores } from '@/lib/db/schema'
 import { createSale, updateSale } from '@/lib/db/mutations/sales'
 import { getSalesList } from '@/lib/db/queries/sales'
+import { getDashboardData } from '@/lib/db/queries/dashboard'
+import { getReportsOverview } from '@/lib/db/queries/reports'
 import { cleanupCashMovements } from './helpers/cash-cleanup'
 
 const actor = { userId: 'u1', userName: 'Admin Test' }
@@ -96,6 +98,29 @@ describe('backdated sales are reported under the date they happened', () => {
 
     const today = await getSalesList('today', storeName)
     expect(today.sales.map((row) => row.reference)).toContain(sale.reference)
+  })
+
+  it('still fills the hourly trend buckets the "today" charts use', async () => {
+    // Regression guard: "Aujourd'hui" buckets the trend chart by hour, so both ends of a bucket
+    // fall on the same calendar date — comparing the effective date at day granularity made every
+    // hourly bucket's range empty, zeroing out the chart.
+    const sale = await createSale({
+      storeId,
+      clientId: null,
+      paymentStatus: 'paid',
+      paidNow: 0,
+      dueInDays: 30,
+      items: [{ productId, quantity: 7, unitPrice: 1000 }],
+    })
+    saleIds.push(sale.id)
+
+    const dashboard = await getDashboardData('today', storeName)
+    const chartTotal = dashboard.salesTrend.reduce((sum, bucket) => sum + bucket.value, 0)
+    expect(chartTotal).toBeGreaterThanOrEqual(7000)
+
+    const reports = await getReportsOverview('today')
+    const reportsChartTotal = reports.salesTrend.reduce((sum, bucket) => sum + bucket.value, 0)
+    expect(reportsChartTotal).toBeGreaterThanOrEqual(7000)
   })
 
   it('moves a sale between periods when its date is corrected', async () => {
