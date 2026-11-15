@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { recordSupplierDelivery } from '@/lib/db/mutations'
 import { getSupplierDeliveryHistory } from '@/lib/db/queries'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { getSessionContext, isAdmin } from '@/lib/session'
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -30,6 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const productId = Number(body.productId)
   const sackCount = Number(body.sackCount)
   const paymentStatus = body.paymentStatus as 'paid' | 'partial' | 'credit'
+  const date = body.date ? String(body.date) : undefined
 
   if (
     !Number.isFinite(supplierId) ||
@@ -41,6 +43,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   ) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
+  }
 
   try {
     const delivery = await recordSupplierDelivery({
@@ -50,6 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       sackCount,
       tonnage: body.tonnage ? Number(body.tonnage) : null,
       reference: body.reference ? String(body.reference) : undefined,
+      date,
       paymentStatus,
       paidNow: Number(body.paidNow ?? 0),
       dueInDays: Number(body.dueInDays ?? 30),

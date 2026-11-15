@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStockOverview, getStoreOptions } from '@/lib/db/queries'
-import { addStockReception } from '@/lib/db/mutations'
+import { recordStockReception } from '@/lib/db/mutations'
 import { toApiErrorMessage } from '@/lib/api-error'
+import { isValidDateString } from '@/lib/dates'
 import { effectiveStoreParam, getSessionContext, isAdmin, scopedStoreList } from '@/lib/session'
 import { csvResponse } from '@/lib/csv'
 
@@ -44,8 +45,13 @@ export async function POST(request: NextRequest) {
   const storeId = Number(body.storeId)
   const quantity = Number(body.quantity)
 
+  const date = body.date ? String(body.date) : undefined
+
   if (!Number.isFinite(productId) || !Number.isFinite(storeId) || !Number.isFinite(quantity) || quantity <= 0) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
+  }
+  if (date !== undefined && !isValidDateString(date)) {
+    return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
   }
 
   if (!isAdmin(ctx) && ctx.storeId !== storeId) {
@@ -53,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await addStockReception({ productId, storeId, quantity, reference: body.reference ? String(body.reference) : undefined })
+    await recordStockReception({ productId, storeId, quantity, reference: body.reference ? String(body.reference) : undefined, date })
     return NextResponse.json({ ok: true }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

@@ -42,6 +42,19 @@ type StockCountRow = {
   createdAt: string
 }
 
+type StockReceptionRow = {
+  id: number
+  productId: number
+  productName: string
+  sku: string
+  storeId: number
+  storeName: string
+  quantity: number
+  reference: string | null
+  date: string
+  createdAt: string
+}
+
 const statusLabel = { ok: 'OK', low: 'Faible', critical: 'Critique' }
 const statusBadge = { ok: 'badge-green', low: 'badge-orange', critical: 'badge-red' }
 
@@ -214,6 +227,7 @@ function StockReceptionForm({ storeOptions, productOptions, onCreated }: { store
   const [storeId, setStoreId] = useState('')
   const [quantity, setQuantity] = useState('')
   const [reference, setReference] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -232,7 +246,7 @@ function StockReceptionForm({ storeOptions, productOptions, onCreated }: { store
       const res = await fetch('/api/stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, storeId, quantity, reference }),
+        body: JSON.stringify({ productId, storeId, quantity, reference, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -265,7 +279,13 @@ function StockReceptionForm({ storeOptions, productOptions, onCreated }: { store
         </div>
         <div className="form-field"><label>Quantité reçue</label><input required type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
       </div>
-      <div className="form-field"><label>Référence (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="BL fournisseur..." /></div>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Date de réception</label>
+          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+        </div>
+        <div className="form-field"><label>Référence (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="BL fournisseur..." /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer la réception'}</button></div>
     </form>
   )
@@ -428,6 +448,124 @@ function DeleteStockCountConfirm({ row, onClose, onDone }: { row: StockCountRow;
   )
 }
 
+function EditReceptionForm({
+  row,
+  storeOptions,
+  productOptions,
+  onSaved,
+}: {
+  row: StockReceptionRow
+  storeOptions: StoreOption[]
+  productOptions: ProductOption[]
+  onSaved: () => void
+}) {
+  const [productId, setProductId] = useState(String(row.productId))
+  const [storeId, setStoreId] = useState(String(row.storeId))
+  const [quantity, setQuantity] = useState(String(row.quantity))
+  const [reference, setReference] = useState(row.reference ?? '')
+  const [date, setDate] = useState((row.date ?? '').slice(0, 10))
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/stock/receptions/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, storeId, quantity, reference, date: date || undefined, reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        La quantité déjà ajoutée au stock est retirée, puis la quantité corrigée est appliquée — comme si la réception avait été
+        saisie correctement du premier coup.
+      </p>
+      <div className="form-field">
+        <label>Article</label>
+        <select required value={productId} onChange={(event) => setProductId(event.target.value)}>
+          {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name} ({option.sku})</option>)}
+        </select>
+      </div>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Magasin</label>
+          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Quantité reçue</label><input required type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
+      </div>
+      <div className="form-row">
+        <div className="form-field"><label>Date de réception</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Référence (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
+      </div>
+      <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
+    </form>
+  )
+}
+
+function DeleteReceptionConfirm({ row, onClose, onDone }: { row: StockReceptionRow; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleDelete() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/stock/receptions/${row.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onDone()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        Les {row.quantity} articles reçus seront retirés du stock de {row.productName} — {row.storeName}. La réception reste
+        visible en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste.
+      </p>
+      <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
+      <div className="form-actions">
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>Garder la réception</button>
+        <button type="button" className="btn-primary" onClick={handleDelete} disabled={submitting}>{submitting ? 'Suppression...' : 'Supprimer la réception'}</button>
+      </div>
+    </div>
+  )
+}
+
 export function StockView() {
   const { data: session } = authClient.useSession()
   const isAdmin = session?.user?.role === 'admin'
@@ -446,6 +584,9 @@ export function StockView() {
   const [counts, setCounts] = useState<StockCountRow[]>([])
   const [editingCount, setEditingCount] = useState<StockCountRow | null>(null)
   const [deletingCount, setDeletingCount] = useState<StockCountRow | null>(null)
+  const [receptions, setReceptions] = useState<StockReceptionRow[]>([])
+  const [editingReception, setEditingReception] = useState<StockReceptionRow | null>(null)
+  const [deletingReception, setDeletingReception] = useState<StockReceptionRow | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -477,6 +618,9 @@ export function StockView() {
     const params = new URLSearchParams({ store })
     fetchJson<{ counts: StockCountRow[] }>(`/api/stock/count?${params.toString()}`)
       .then((json) => setCounts(json.counts ?? []))
+      .catch(() => {})
+    fetchJson<{ receptions: StockReceptionRow[] }>(`/api/stock/receptions?${params.toString()}`)
+      .then((json) => setReceptions(json.receptions ?? []))
       .catch(() => {})
   }, [store, refreshKey])
 
@@ -616,8 +760,60 @@ export function StockView() {
         </div>
       )}
 
+      {receptions.length > 0 && (
+        <div className="table-panel" style={{ marginTop: 20 }}>
+          <div className="table-scroll">
+            <p className="section-title" style={{ padding: '16px 18px 0' }}>Réceptions récentes</p>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Produit</th>
+                  <th>Magasin</th>
+                  <th>Quantité</th>
+                  <th>Référence</th>
+                  {isAdmin && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {receptions.map((row) => (
+                  <tr key={row.id}>
+                    <td data-label="Date">{new Date(row.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                    <td data-label="Produit">{row.productName} ({row.sku})</td>
+                    <td data-label="Magasin">{row.storeName}</td>
+                    <td data-label="Quantité" style={{ fontWeight: 700 }}>+{row.quantity}</td>
+                    <td data-label="Référence">{row.reference ?? '—'}</td>
+                    {isAdmin && (
+                      <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn-ghost" onClick={() => setEditingReception(row)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
+                        <button className="btn-ghost" onClick={() => setDeletingReception(row)}><Trash2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Supprimer</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <Modal open={countModalOpen} onClose={() => setCountModalOpen(false)} title="Comptage physique" subtitle="Comparez le stock compté au stock théorique et ajustez le système.">
         <StockCountForm storeOptions={storeOptions} productOptions={productOptions} stockItems={data?.items ?? []} onCreated={refresh} />
+      </Modal>
+      <Modal open={editingReception !== null} onClose={() => setEditingReception(null)} title="Modifier la réception" subtitle="Corrigez l’article, la quantité ou la date de réception.">
+        {editingReception && (
+          <EditReceptionForm
+            row={editingReception}
+            storeOptions={storeOptions}
+            productOptions={productOptions}
+            onSaved={() => { setEditingReception(null); refresh() }}
+          />
+        )}
+      </Modal>
+      <Modal open={deletingReception !== null} onClose={() => setDeletingReception(null)} title="Supprimer cette réception ?" subtitle="">
+        {deletingReception && (
+          <DeleteReceptionConfirm row={deletingReception} onClose={() => setDeletingReception(null)} onDone={() => { setDeletingReception(null); refresh() }} />
+        )}
       </Modal>
       <Modal open={editingCount !== null} onClose={() => setEditingCount(null)} title="Modifier le comptage" subtitle="">
         {editingCount && <EditStockCountForm row={editingCount} onSaved={() => { setEditingCount(null); refresh() }} />}

@@ -185,20 +185,3 @@ export async function bulkImportProducts(input: { storeId: number; rows: BulkImp
     return { imported: importedCount, skipped }
   })
 }
-
-export async function addStockReception(input: { productId: number; storeId: number; quantity: number; reference?: string }) {
-  const currentQuantity = await getQuantity(db, input.productId, input.storeId)
-
-  await db
-    .update(stockLevels)
-    .set({ quantity: currentQuantity + input.quantity })
-    .where(and(eq(stockLevels.productId, input.productId), eq(stockLevels.storeId, input.storeId)))
-
-  await db.insert(stockMovements).values({
-    type: 'reception',
-    productId: input.productId,
-    storeId: input.storeId,
-    quantity: input.quantity,
-    reference: input.reference ?? null,
-  })
-}

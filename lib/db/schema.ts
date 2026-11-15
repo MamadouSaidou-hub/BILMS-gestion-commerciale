@@ -101,6 +101,27 @@ export const stockCounts = pgTable(
   (table) => [index('stock_counts_store_id_idx').on(table.storeId), index('stock_counts_product_id_idx').on(table.productId)],
 )
 
+export const stockReceptions = pgTable(
+  'stock_receptions',
+  {
+    id: serial('id').primaryKey(),
+    storeId: integer('store_id')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    quantity: integer('quantity').notNull(),
+    reference: text('reference'),
+    // Backdatable "YYYY-MM-DD" (like sales.saleDate) — null means it happened the day it was
+    // entered, so reports fall back to createdAt for those.
+    date: text('date'),
+    deletedAt: text('deleted_at'),
+    ...timestamps,
+  },
+  (table) => [index('stock_receptions_store_id_idx').on(table.storeId), index('stock_receptions_product_id_idx').on(table.productId)],
+)
+
 export const clients = pgTable(
   'clients',
   {
@@ -303,6 +324,9 @@ export const supplierDeliveries = pgTable(
     sackCount: integer('sack_count').notNull(),
     tonnage: doublePrecision('tonnage'),
     totalAmount: doublePrecision('total_amount').notNull(),
+    // Backdatable "YYYY-MM-DD" (like sales.saleDate) — null means it happened the day it was
+    // entered, so reports fall back to createdAt for those.
+    date: text('date'),
     deletedAt: text('deleted_at'),
     ...timestamps,
   },

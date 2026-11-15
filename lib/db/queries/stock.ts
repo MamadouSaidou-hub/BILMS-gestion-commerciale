@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
-import { products, stockCounts, stockLevels, stores } from '../schema'
+import { products, stockCounts, stockLevels, stockReceptions, stores } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { resolveStoreId } from './shared'
+import { effectiveDate } from './effective-date'
 
 export async function getStockOverview(storeName: string | null) {
   const storeId = await resolveStoreId(storeName)
@@ -73,6 +74,32 @@ export async function getStockCountHistory(storeName: string | null) {
     .innerJoin(stores, eq(stockCounts.storeId, stores.id))
     .where(and(isNull(stockCounts.deletedAt), storeId ? eq(stockCounts.storeId, storeId) : undefined))
     .orderBy(desc(stockCounts.createdAt))
+    .limit(50)
+
+  return rows
+}
+
+export async function getStockReceptionHistory(storeName: string | null) {
+  const storeId = await resolveStoreId(storeName)
+
+  const rows = await db
+    .select({
+      id: stockReceptions.id,
+      productId: stockReceptions.productId,
+      productName: products.name,
+      sku: products.sku,
+      storeId: stockReceptions.storeId,
+      storeName: stores.name,
+      quantity: stockReceptions.quantity,
+      reference: stockReceptions.reference,
+      date: sql<string>`${effectiveDate(stockReceptions.date, stockReceptions.createdAt)}`,
+      createdAt: stockReceptions.createdAt,
+    })
+    .from(stockReceptions)
+    .innerJoin(products, eq(stockReceptions.productId, products.id))
+    .innerJoin(stores, eq(stockReceptions.storeId, stores.id))
+    .where(and(isNull(stockReceptions.deletedAt), storeId ? eq(stockReceptions.storeId, storeId) : undefined))
+    .orderBy(desc(sql`${effectiveDate(stockReceptions.date, stockReceptions.createdAt)}`))
     .limit(50)
 
   return rows

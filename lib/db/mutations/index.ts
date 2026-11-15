@@ -1,12 +1,12 @@
 export { createStore } from './stores'
 export { createClient, updateClient } from './clients'
-export { createProduct, addStockReception, bulkImportProducts, type BulkImportRow } from './products'
+export { createProduct, bulkImportProducts, type BulkImportRow } from './products'
 export { createSale, updateSale, cancelSale } from './sales'
 export { type Actor } from './audit'
 export { recordPayment, updatePayment, deletePayment, recordSupplierPayment, updateSupplierPayment, deleteSupplierPayment } from './payments'
 export { createTransfer, receiveTransfer } from './transfers'
 export { createSupplier, recordSupplierDelivery, updateSupplierDelivery, deleteSupplierDelivery } from './suppliers'
-export { recordStockCount, updateStockCount, deleteStockCount } from './stock'
+export { recordStockCount, updateStockCount, deleteStockCount, recordStockReception, updateStockReception, deleteStockReception } from './stock'
 export {
   createCashAccount,
   recordCashMovement,

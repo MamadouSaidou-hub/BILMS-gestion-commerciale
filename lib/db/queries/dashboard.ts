@@ -1,9 +1,10 @@
-import { and, desc, eq, gte, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, products, receivables, sales, stockLevels, stockMovements, stores, transfers } from '../schema'
 import { formatFcfa, formatTrend, isPastDue, pctChange } from '@/lib/format'
 import { periodRange, periodTrendBuckets, type CustomRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
+import { saleDateGte, saleDateLt } from './sale-date'
 
 type Activity = { title: string; subtitle: string; amount: string; tone: 'green' | 'blue' | 'orange' | 'purple'; icon: 'sale' | 'stock' | 'payment' | 'transfer'; createdAt: string }
 
@@ -47,11 +48,11 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
     db
       .select({ total: sales.totalAmount, cost: sales.costAmount })
       .from(sales)
-      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter)),
+      .where(and(saleDateGte(start), isNull(sales.deletedAt), storeFilter)),
     db
       .select({ total: sales.totalAmount, cost: sales.costAmount })
       .from(sales)
-      .where(and(gte(sales.createdAt, previousStart.toISOString()), lt(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter)),
+      .where(and(saleDateGte(previousStart), saleDateLt(start), isNull(sales.deletedAt), storeFilter)),
     db
       .select({
         quantity: stockLevels.quantity,
@@ -71,7 +72,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
         db
           .select({ total: sales.totalAmount })
           .from(sales)
-          .where(and(gte(sales.createdAt, bucketStart.toISOString()), lt(sales.createdAt, bucketEnd.toISOString()), isNull(sales.deletedAt), storeFilter))
+          .where(and(saleDateGte(bucketStart), saleDateLt(bucketEnd), isNull(sales.deletedAt), storeFilter))
           .then((rows) => ({ day: label, value: rows.reduce((sum, row) => sum + row.total, 0) })),
       ),
     ),
@@ -83,7 +84,7 @@ export async function getDashboardData(period: PeriodKey, storeName: string | nu
       })
       .from(sales)
       .innerJoin(stores, eq(sales.storeId, stores.id))
-      .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter))
+      .where(and(saleDateGte(start), isNull(sales.deletedAt), storeFilter))
       .groupBy(sales.storeId, stores.name),
     db
       .select({

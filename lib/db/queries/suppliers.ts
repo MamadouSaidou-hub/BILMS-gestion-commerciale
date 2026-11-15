@@ -1,7 +1,8 @@
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { products, stores, supplierDeliveries, supplierPayables, supplierPayments, suppliers } from '../schema'
 import { formatFcfa, isPastDue } from '@/lib/format'
+import { effectiveDate } from './effective-date'
 
 export async function getSuppliersOverview() {
   const supplierRows = await db.select().from(suppliers)
@@ -70,13 +71,15 @@ export async function getSupplierDeliveryHistory(supplierId: number) {
       sackCount: supplierDeliveries.sackCount,
       tonnage: supplierDeliveries.tonnage,
       totalAmount: supplierDeliveries.totalAmount,
+      date: supplierDeliveries.date,
+      effectiveDate: sql<string>`${effectiveDate(supplierDeliveries.date, supplierDeliveries.createdAt)}`,
       createdAt: supplierDeliveries.createdAt,
     })
     .from(supplierDeliveries)
     .innerJoin(stores, eq(supplierDeliveries.storeId, stores.id))
     .innerJoin(products, eq(supplierDeliveries.productId, products.id))
     .where(and(eq(supplierDeliveries.supplierId, supplierId), isNull(supplierDeliveries.deletedAt)))
-    .orderBy(desc(supplierDeliveries.createdAt))
+    .orderBy(desc(sql`${effectiveDate(supplierDeliveries.date, supplierDeliveries.createdAt)}`))
 
   return rows.map((row) => ({ ...row, totalAmountFormatted: formatFcfa(row.totalAmount) }))
 }

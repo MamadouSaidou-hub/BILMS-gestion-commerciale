@@ -19,6 +19,7 @@ type DeliveryInput = {
   sackCount: number
   tonnage?: number | null
   reference?: string | null
+  date?: string | null
   paymentStatus: 'paid' | 'partial' | 'credit'
   paidNow: number
   dueInDays: number
@@ -120,6 +121,7 @@ export async function recordSupplierDelivery(input: DeliveryInput) {
           sackCount: input.sackCount,
           tonnage: input.tonnage ?? null,
           totalAmount,
+          date: input.date ?? null,
         })
         .returning()
 
@@ -170,6 +172,7 @@ export async function updateSupplierDelivery(id: number, input: DeliveryInput, a
         sackCount: input.sackCount,
         tonnage: input.tonnage ?? null,
         totalAmount,
+        date: input.date ?? null,
       })
       .where(eq(supplierDeliveries.id, id))
       .returning()

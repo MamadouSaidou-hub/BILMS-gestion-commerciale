@@ -96,6 +96,7 @@ function RecordDeliveryForm({
   const [sackCount, setSackCount] = useState('')
   const [tonnage, setTonnage] = useState('')
   const [reference, setReference] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'partial' | 'credit'>('credit')
   const [paidNow, setPaidNow] = useState('')
   const [dueInDays, setDueInDays] = useState('30')
@@ -120,6 +121,7 @@ function RecordDeliveryForm({
           sackCount,
           tonnage: tonnage || null,
           reference: reference || undefined,
+          date: date || undefined,
           paymentStatus,
           paidNow: paymentStatus === 'partial' ? paidNow : 0,
           dueInDays,
@@ -160,7 +162,10 @@ function RecordDeliveryForm({
         <div className="form-field"><label>Nombre de {businessConfig.unit.basePluralLower}</label><input required type="number" min="1" value={sackCount} onChange={(event) => setSackCount(event.target.value)} /></div>
         <div className="form-field"><label>Poids/volume (optionnel)</label><input type="number" min="0" step="0.01" value={tonnage} onChange={(event) => setTonnage(event.target.value)} placeholder="Pour info uniquement" /></div>
       </div>
-      <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ex : plaque du camion" /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Date de livraison</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ex : plaque du camion" /></div>
+      </div>
 
       <div className="form-row">
         <div className="form-field">
@@ -245,6 +250,8 @@ type DeliveryRow = {
   tonnage: number | null
   totalAmount: number
   totalAmountFormatted: string
+  date: string | null
+  effectiveDate: string
   createdAt: string
 }
 
@@ -274,6 +281,7 @@ function EditDeliveryForm({
   const [sackCount, setSackCount] = useState(String(delivery.sackCount))
   const [tonnage, setTonnage] = useState(delivery.tonnage !== null ? String(delivery.tonnage) : '')
   const [reference, setReference] = useState(delivery.reference ?? '')
+  const [date, setDate] = useState((delivery.date ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -292,7 +300,8 @@ function EditDeliveryForm({
           sackCount,
           tonnage: tonnage || null,
           reference: reference || null,
-          paymentStatus: 'paid', // Payment terms aren't corrected here — only quantity/product/store.
+          date: date || null,
+          paymentStatus: 'paid', // Payment terms aren't corrected here — only quantity/product/store/date.
           paidNow: 0,
           dueInDays: 30,
           reason: reason || undefined,
@@ -333,7 +342,10 @@ function EditDeliveryForm({
         <div className="form-field"><label>Nombre de {businessConfig.unit.basePluralLower}</label><input required type="number" min="1" value={sackCount} onChange={(event) => setSackCount(event.target.value)} /></div>
         <div className="form-field"><label>Poids/volume (optionnel)</label><input type="number" min="0" step="0.01" value={tonnage} onChange={(event) => setTonnage(event.target.value)} /></div>
       </div>
-      <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field"><label>Date de livraison</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+        <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
+      </div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <p className="section-subtitle" style={{ fontSize: 11 }}>Le statut de paiement n’est pas modifié ici — si cette livraison a déjà une dette en cours, elle est recréée au même montant recalculé.</p>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
@@ -522,7 +534,7 @@ function SupplierHistory({
           <tbody>
             {deliveries.map((delivery) => (
               <tr key={delivery.id}>
-                <td data-label="Date">{new Date(delivery.createdAt).toLocaleDateString('fr-FR')}</td>
+                <td data-label="Date">{new Date(delivery.effectiveDate).toLocaleDateString('fr-FR')}</td>
                 <td data-label="Produit">{delivery.productName}</td>
                 <td data-label="Magasin">{delivery.storeName}</td>
                 <td data-label={businessConfig.unit.basePlural}>{delivery.sackCount}</td>

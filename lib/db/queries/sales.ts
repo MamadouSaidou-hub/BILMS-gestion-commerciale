@@ -1,9 +1,10 @@
-import { and, desc, eq, gte, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { clients, payments, products, receivables, saleItems, sales, stores } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { periodRange, type PeriodKey } from '@/lib/period'
 import { resolveStoreId } from './shared'
+import { saleDateGte, saleEffectiveDate } from './sale-date'
 
 export async function getSalesList(period: PeriodKey, storeName: string | null) {
   const { start } = periodRange(period)
@@ -13,7 +14,7 @@ export async function getSalesList(period: PeriodKey, storeName: string | null) 
   const rows = await db
     .select({
       reference: sales.reference,
-      createdAt: sales.createdAt,
+      effectiveDate: sql<string>`${saleEffectiveDate}`,
       totalAmount: sales.totalAmount,
       paymentStatus: sales.paymentStatus,
       storeName: stores.name,
@@ -22,8 +23,8 @@ export async function getSalesList(period: PeriodKey, storeName: string | null) 
     .from(sales)
     .innerJoin(stores, eq(sales.storeId, stores.id))
     .leftJoin(clients, eq(sales.clientId, clients.id))
-    .where(and(gte(sales.createdAt, start.toISOString()), isNull(sales.deletedAt), storeFilter))
-    .orderBy(desc(sales.createdAt))
+    .where(and(saleDateGte(start), isNull(sales.deletedAt), storeFilter))
+    .orderBy(desc(sql`${saleEffectiveDate}`))
 
   const totalRevenue = rows.reduce((sum, row) => sum + row.totalAmount, 0)
   const creditCount = rows.filter((row) => row.paymentStatus !== 'paid').length
@@ -32,7 +33,7 @@ export async function getSalesList(period: PeriodKey, storeName: string | null) 
   return {
     sales: rows.map((row) => ({
       reference: row.reference,
-      date: row.createdAt,
+      date: row.effectiveDate,
       store: row.storeName,
       client: row.clientName ?? '—',
       amount: formatFcfa(row.totalAmount),
@@ -52,7 +53,7 @@ export async function getSaleDetail(reference: string) {
     .select({
       id: sales.id,
       reference: sales.reference,
-      createdAt: sales.createdAt,
+      effectiveDate: sql<string>`${saleEffectiveDate}`,
       storeId: sales.storeId,
       storeName: stores.name,
       storeCity: stores.city,
@@ -86,7 +87,7 @@ export async function getSaleDetail(reference: string) {
 
   return {
     reference: sale.reference,
-    date: sale.createdAt,
+    date: sale.effectiveDate,
     storeId: sale.storeId,
     storeName: sale.storeName,
     storeCity: sale.storeCity,

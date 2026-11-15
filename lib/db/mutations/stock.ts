@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../client'
-import { stockCounts, stockLevels, stockMovements } from '../schema'
+import { stockCounts, stockLevels, stockMovements, stockReceptions } from '../schema'
 import { getQuantity } from './shared'
 import { writeAuditLog, type Actor } from './audit'
 
@@ -138,6 +138,150 @@ export async function deleteStockCount(id: number, actor: Actor, reason?: string
 
     await writeAuditLog(tx, {
       entityType: 'stock_count',
+      entityId: id,
+      action: 'delete',
+      actor,
+      reason,
+      beforeData: existing,
+    })
+
+    return deleted
+  })
+}
+
+export async function recordStockReception(input: { productId: number; storeId: number; quantity: number; reference?: string; date?: string }) {
+  if (input.quantity <= 0) {
+    throw new Error('La quantité doit être supérieure à zéro.')
+  }
+
+  return db.transaction(async (tx) => {
+    const [reception] = await tx
+      .insert(stockReceptions)
+      .values({
+        productId: input.productId,
+        storeId: input.storeId,
+        quantity: input.quantity,
+        reference: input.reference ?? null,
+        date: input.date ?? null,
+      })
+      .returning()
+
+    const currentQuantity = await getQuantity(tx, input.productId, input.storeId)
+    await tx
+      .update(stockLevels)
+      .set({ quantity: currentQuantity + input.quantity })
+      .where(and(eq(stockLevels.productId, input.productId), eq(stockLevels.storeId, input.storeId)))
+
+    await tx.insert(stockMovements).values({
+      type: 'reception',
+      productId: input.productId,
+      storeId: input.storeId,
+      quantity: input.quantity,
+      reference: input.reference ?? null,
+    })
+
+    return reception
+  })
+}
+
+/** Reverses a stock reception's effect on `stockLevels` — logged as an `adjustment` movement
+ * (not a deletion of the original `reception` movement, so the history stays intact) — shared by
+ * `updateStockReception` (reverse, then reapply with corrected values) and `deleteStockReception`
+ * (reverse, then soft-delete). Refuses if the stock has since dropped below what this reception
+ * contributed (already resold), same guard as `updateSupplierDelivery`/`deleteSupplierDelivery`. */
+async function reverseStockReceptionEffects(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], reception: typeof stockReceptions.$inferSelect) {
+  const currentQuantity = await getQuantity(tx, reception.productId, reception.storeId)
+  if (currentQuantity < reception.quantity) {
+    throw new Error(`Stock insuffisant pour annuler cette réception (disponible : ${currentQuantity}, reçu : ${reception.quantity}) — probablement déjà revendue.`)
+  }
+
+  await tx
+    .update(stockLevels)
+    .set({ quantity: currentQuantity - reception.quantity })
+    .where(and(eq(stockLevels.productId, reception.productId), eq(stockLevels.storeId, reception.storeId)))
+  await tx.insert(stockMovements).values({
+    type: 'adjustment',
+    productId: reception.productId,
+    storeId: reception.storeId,
+    quantity: -reception.quantity,
+    reference: `Correction réception #${reception.id}`,
+  })
+}
+
+export async function updateStockReception(
+  id: number,
+  input: { productId: number; storeId: number; quantity: number; reference?: string; date?: string },
+  actor: Actor,
+  reason?: string,
+) {
+  if (input.quantity <= 0) {
+    throw new Error('La quantité doit être supérieure à zéro.')
+  }
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(stockReceptions).where(and(eq(stockReceptions.id, id), isNull(stockReceptions.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Réception introuvable.')
+    }
+
+    await reverseStockReceptionEffects(tx, existing)
+
+    const [updated] = await tx
+      .update(stockReceptions)
+      .set({
+        productId: input.productId,
+        storeId: input.storeId,
+        quantity: input.quantity,
+        reference: input.reference ?? null,
+        date: input.date ?? null,
+      })
+      .where(eq(stockReceptions.id, id))
+      .returning()
+
+    const currentQuantity = await getQuantity(tx, updated.productId, updated.storeId)
+    await tx
+      .update(stockLevels)
+      .set({ quantity: currentQuantity + updated.quantity })
+      .where(and(eq(stockLevels.productId, updated.productId), eq(stockLevels.storeId, updated.storeId)))
+    await tx.insert(stockMovements).values({
+      type: 'reception',
+      productId: updated.productId,
+      storeId: updated.storeId,
+      quantity: updated.quantity,
+      reference: updated.reference ?? `Correction réception #${id}`,
+    })
+
+    await writeAuditLog(tx, {
+      entityType: 'stock_reception',
+      entityId: id,
+      action: 'update',
+      actor,
+      reason,
+      beforeData: existing,
+      afterData: updated,
+    })
+
+    return updated
+  })
+}
+
+export async function deleteStockReception(id: number, actor: Actor, reason?: string) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(stockReceptions).where(and(eq(stockReceptions.id, id), isNull(stockReceptions.deletedAt))).for('update')
+    if (!existing) {
+      throw new Error('Réception introuvable.')
+    }
+
+    await reverseStockReceptionEffects(tx, existing)
+
+    const [deleted] = await tx
+      .update(stockReceptions)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(stockReceptions.id, id))
+      .returning()
+
+    await writeAuditLog(tx, {
+      entityType: 'stock_reception',
       entityId: id,
       action: 'delete',
       actor,
