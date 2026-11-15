@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
 import { auditLog, clients, payments, paymentAllocations, products, receivables, saleItems, sales, stockLevels, stores } from '@/lib/db/schema'
+import { cleanupCashMovements } from './helpers/cash-cleanup'
 import { createSale } from '@/lib/db/mutations/sales'
 import { deletePayment, recordPayment, updatePayment } from '@/lib/db/mutations/payments'
 
@@ -38,6 +39,23 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // recordPayment/updatePayment/deletePayment, and a 'partial' createSale, all auto-route into the
+  // real caisse (lib/db/mutations/cash-accounts.ts) — clean those movements up before the payments/
+  // sales themselves disappear, otherwise fake test money permanently pollutes the real caisse.
+  const paymentDescriptions = paymentIds.flatMap((id) => [
+    `Paiement #${id}`,
+    `Correction paiement #${id} (ancien montant)`,
+    `Correction paiement #${id} (nouveau montant)`,
+    `Annulation paiement #${id}`,
+  ])
+  await cleanupCashMovements(paymentDescriptions)
+
+  if (saleIds.length > 0) {
+    const saleRows = await db.select({ reference: sales.reference }).from(sales).where(inArray(sales.id, saleIds))
+    const saleDescriptions = saleRows.flatMap((s) => [`Vente #${s.reference}`, `Annulation vente #${s.reference}`])
+    await cleanupCashMovements(saleDescriptions)
+  }
+
   for (const id of paymentIds) {
     await db.delete(auditLog).where(and(eq(auditLog.entityType, 'payment'), eq(auditLog.entityId, id)))
     await db.delete(paymentAllocations).where(eq(paymentAllocations.paymentId, id))

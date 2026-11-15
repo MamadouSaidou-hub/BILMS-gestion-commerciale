@@ -24,6 +24,7 @@ import {
   Truck,
   UserCog,
   Users,
+  Wallet,
   WalletCards,
   X,
 } from 'lucide-react'
@@ -48,6 +49,7 @@ const navGroups = [
       { href: '/stock', label: 'Stock', icon: Package, adminOnly: false },
       { href: '/transferts', label: 'Transferts', icon: ArrowLeftRight, adminOnly: false },
       { href: '/tresorerie', label: 'Trésorerie', icon: WalletCards, adminOnly: true },
+      { href: '/caisse', label: 'Caisse & Dépenses', icon: Wallet, adminOnly: true },
       { href: '/magasins', label: 'Magasins', icon: Store, adminOnly: true },
       { href: '/clients', label: 'Clients & créances', icon: Users, adminOnly: false },
       { href: '/fournisseurs', label: 'Fournisseurs', icon: Truck, adminOnly: true },

@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { doublePrecision, index, integer, jsonb, pgTable, serial, text, uniqueIndex } from 'drizzle-orm/pg-core'
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, serial, text, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamps = {
   // JS-side default (not a DB-level `now()`/`current_timestamp`) so every timestamp in the app is
@@ -426,6 +426,53 @@ export const discountApplications = pgTable(
     // supplier cycle grants always use a fresh timestamp as `period`, so this never conflicts there.
     uniqueIndex('discount_applications_scale_period_idx').on(table.scaleId, table.period),
   ],
+)
+
+// ─── Caisse & Dépenses (Boutique uniquement) ───────────────────────────────
+// Scoped to the Boutique line only — Immo/Location voiture keep their own expense tables
+// (building_expenses/vehicle_expenses) and don't route through here.
+
+export const cashAccountType = ['cash', 'bank', 'mobile_money', 'other'] as const
+
+export const cashAccounts = pgTable(
+  'cash_accounts',
+  {
+    id: serial('id').primaryKey(),
+    name: text('name').notNull(),
+    type: text('type', { enum: cashAccountType }).notNull().default('cash'),
+    balance: doublePrecision('balance').notNull().default(0),
+    storeId: integer('store_id').references(() => stores.id, { onDelete: 'set null' }),
+    // The single account every Boutique sale, client payment, and supplier payment auto-routes
+    // through — at most one row has this set to true (enforced in recordAutoCashMovement, not a
+    // DB constraint). Redistributing to other caisses is then a manual transfer.
+    isDefault: boolean('is_default').notNull().default(false),
+    ...timestamps,
+  },
+  (table) => [index('cash_accounts_store_id_idx').on(table.storeId)],
+)
+
+export const cashMovementType = ['expense', 'deposit'] as const
+
+export const cashMovements = pgTable(
+  'cash_movements',
+  {
+    id: serial('id').primaryKey(),
+    // restrict, pas cascade : on ne veut jamais perdre l'historique financier en supprimant une caisse.
+    cashAccountId: integer('cash_account_id')
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: 'restrict' }),
+    storeId: integer('store_id').references(() => stores.id, { onDelete: 'set null' }),
+    type: text('type', { enum: cashMovementType }).notNull(),
+    // Texte libre (comme products.category) plutôt qu'un enum fermé pour les dépôts — seules les
+    // dépenses sont contraintes à EXPENSE_CATEGORIES (lib/expense-categories.ts), côté serveur.
+    category: text('category').notNull(),
+    description: text('description'),
+    // Toujours positif — le sens (crédit/débit) est porté par `type`, pas par le signe.
+    amount: doublePrecision('amount').notNull(),
+    deletedAt: text('deleted_at'),
+    ...timestamps,
+  },
+  (table) => [index('cash_movements_account_id_idx').on(table.cashAccountId), index('cash_movements_created_at_idx').on(table.createdAt)],
 )
 
 // ─── Location voiture ────────────────────────────────────────────────────

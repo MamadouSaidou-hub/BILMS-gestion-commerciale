@@ -3,6 +3,7 @@ import { db } from '../client'
 import { payments, products, receivables, saleItems, sales, stockLevels, stockMovements } from '../schema'
 import { getQuantity } from './shared'
 import { writeAuditLog, type Actor } from './audit'
+import { recordAutoCashMovement } from './cash-accounts'
 
 type SaleItemInput = { productId: number; quantity: number; unitPrice: number }
 
@@ -19,7 +20,7 @@ export async function createSale(input: {
     throw new Error('Une vente doit contenir au moins un article.')
   }
 
-  return db.transaction(async (tx) => {
+  const sale = await db.transaction(async (tx) => {
     const resolved = await resolveAndCheckStock(tx, input.storeId, input.items)
 
     // A Postgres sequence (not a count of existing rows) — counting breaks the moment a sale is
@@ -45,6 +46,21 @@ export async function createSale(input: {
     await applySaleEffects(tx, sale, resolved.items, input)
     return sale
   })
+
+  // Outside the transaction: recordAutoCashMovement uses its own connection, and only runs once
+  // the sale has actually committed (never want a cash entry for a sale that got rolled back).
+  const receivedNow = input.paymentStatus === 'paid' ? sale.totalAmount : input.paymentStatus === 'partial' ? input.paidNow : 0
+  if (receivedNow > 0) {
+    await recordAutoCashMovement({
+      direction: 'in',
+      amount: receivedNow,
+      storeId: input.storeId,
+      category: 'Vente',
+      description: `Vente #${sale.reference}`,
+    })
+  }
+
+  return sale
 }
 
 export async function updateSale(
@@ -65,7 +81,7 @@ export async function updateSale(
     throw new Error('Une vente doit contenir au moins un article.')
   }
 
-  return db.transaction(async (tx) => {
+  const { updated, reversedAmount } = await db.transaction(async (tx) => {
     const [existingSale] = await tx.select().from(sales).where(eq(sales.reference, reference)).for('update')
     if (!existingSale || existingSale.deletedAt) {
       throw new Error('Vente introuvable.')
@@ -75,6 +91,11 @@ export async function updateSale(
     const existingPayments = await tx.select().from(payments).where(eq(payments.saleId, existingSale.id))
     const existingReceivables = await tx.select().from(receivables).where(eq(receivables.saleId, existingSale.id))
     const beforeData = { sale: existingSale, items: existingItems, payments: existingPayments, receivables: existingReceivables }
+
+    // What this sale actually put in the caisse at creation time: the full total if it was paid
+    // in full on the spot (no `payments` row for that case — see applySaleEffects), otherwise
+    // whatever partial amount was recorded against it (0 for a pure credit sale).
+    const reversedAmount = existingSale.paymentStatus === 'paid' ? existingSale.totalAmount : existingPayments.reduce((sum, p) => sum + p.amount, 0)
 
     await reverseSaleEffects(tx, existingSale, existingItems)
 
@@ -108,12 +129,38 @@ export async function updateSale(
       afterData: { sale: updated, items: newItems, payments: newPayments, receivables: newReceivables },
     })
 
-    return updated
+    return { updated, reversedAmount }
   })
+
+  // Outside the transaction, mirroring createSale: never edit a historical cash entry in place,
+  // append a compensating pair instead — an "out" for whatever the old version put in the caisse,
+  // an "in" for whatever the corrected version actually puts in. Two entries rather than one
+  // netted figure keeps the caisse's own history legible (a correction happened here).
+  if (reversedAmount > 0) {
+    await recordAutoCashMovement({
+      direction: 'out',
+      amount: reversedAmount,
+      storeId: updated.storeId,
+      category: 'Correction vente',
+      description: `Correction vente #${updated.reference} (ancien montant)`,
+    })
+  }
+  const receivedNow = input.paymentStatus === 'paid' ? updated.totalAmount : input.paymentStatus === 'partial' ? input.paidNow : 0
+  if (receivedNow > 0) {
+    await recordAutoCashMovement({
+      direction: 'in',
+      amount: receivedNow,
+      storeId: updated.storeId,
+      category: 'Correction vente',
+      description: `Correction vente #${updated.reference} (nouveau montant)`,
+    })
+  }
+
+  return updated
 }
 
 export async function cancelSale(reference: string, actor: Actor, reason?: string) {
-  return db.transaction(async (tx) => {
+  const { cancelled, reversedAmount } = await db.transaction(async (tx) => {
     const [existingSale] = await tx.select().from(sales).where(eq(sales.reference, reference)).for('update')
     if (!existingSale || existingSale.deletedAt) {
       throw new Error('Vente introuvable.')
@@ -123,6 +170,8 @@ export async function cancelSale(reference: string, actor: Actor, reason?: strin
     const existingPayments = await tx.select().from(payments).where(eq(payments.saleId, existingSale.id))
     const existingReceivables = await tx.select().from(receivables).where(eq(receivables.saleId, existingSale.id))
     const beforeData = { sale: existingSale, items: existingItems, payments: existingPayments, receivables: existingReceivables }
+
+    const reversedAmount = existingSale.paymentStatus === 'paid' ? existingSale.totalAmount : existingPayments.reduce((sum, p) => sum + p.amount, 0)
 
     await reverseSaleEffects(tx, existingSale, existingItems)
 
@@ -141,8 +190,23 @@ export async function cancelSale(reference: string, actor: Actor, reason?: strin
       beforeData,
     })
 
-    return cancelled
+    return { cancelled, reversedAmount }
   })
+
+  // Outside the transaction, same reasoning as createSale/updateSale: never delete the original
+  // "money came in" record, add an equal-and-opposite one instead — the caisse's history should
+  // show that a sale happened and was later cancelled, not pretend it never did.
+  if (reversedAmount > 0) {
+    await recordAutoCashMovement({
+      direction: 'out',
+      amount: reversedAmount,
+      storeId: cancelled.storeId,
+      category: 'Annulation vente',
+      description: `Annulation vente #${cancelled.reference}`,
+    })
+  }
+
+  return cancelled
 }
 
 // ─── Shared helpers ─────────────────────────────────────────────────────

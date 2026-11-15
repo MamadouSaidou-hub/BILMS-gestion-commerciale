@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
 import { auditLog, clients, payments, products, receivables, saleItems, sales, stockLevels, stockMovements, stores } from '@/lib/db/schema'
+import { cleanupCashMovements } from './helpers/cash-cleanup'
 import { cancelSale, createSale, updateSale } from '@/lib/db/mutations/sales'
 import { recordPayment } from '@/lib/db/mutations/payments'
 
@@ -45,6 +46,20 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // createSale/updateSale/cancelSale auto-route into the real caisse (lib/db/mutations/cash-accounts.ts)
+  // — clean up the cash movements they created before the sales themselves disappear, otherwise
+  // fake test money permanently pollutes the real "Caisse principale" balance.
+  if (saleIds.length > 0) {
+    const saleRows = await db.select({ reference: sales.reference }).from(sales).where(inArray(sales.id, saleIds))
+    const descriptions = saleRows.flatMap((s) => [
+      `Vente #${s.reference}`,
+      `Annulation vente #${s.reference}`,
+      `Correction vente #${s.reference} (ancien montant)`,
+      `Correction vente #${s.reference} (nouveau montant)`,
+    ])
+    await cleanupCashMovements(descriptions)
+  }
+
   for (const saleId of saleIds) {
     await db.delete(auditLog).where(and(eq(auditLog.entityType, 'sale'), eq(auditLog.entityId, saleId)))
     await db.delete(receivables).where(eq(receivables.saleId, saleId))
@@ -287,7 +302,7 @@ describe('cancelSale', () => {
 
     // The client later settles the debt through Trésorerie — independent of the sale, exactly
     // like a real standalone payment. This must not be silently undone by a later edit/cancel.
-    await recordPayment({ clientId: isolatedClient.id, amount: 10000, method: 'cash', storeId })
+    const standalonePayment = await recordPayment({ clientId: isolatedClient.id, amount: 10000, method: 'cash', storeId })
 
     await expect(
       updateSale(
@@ -312,6 +327,7 @@ describe('cancelSale', () => {
     const [receivable] = await db.select().from(receivables).where(eq(receivables.saleId, sale.id))
     expect(receivable.status).toBe('paid')
 
+    await cleanupCashMovements([`Paiement #${standalonePayment.id}`])
     await db.delete(payments).where(eq(payments.clientId, isolatedClient.id))
     await db.delete(receivables).where(eq(receivables.saleId, sale.id))
     await db.delete(clients).where(eq(clients.id, isolatedClient.id))

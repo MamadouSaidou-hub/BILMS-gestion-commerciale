@@ -7,6 +7,14 @@ export { recordPayment, updatePayment, deletePayment, recordSupplierPayment, upd
 export { createTransfer, receiveTransfer } from './transfers'
 export { createSupplier, recordSupplierDelivery, updateSupplierDelivery, deleteSupplierDelivery } from './suppliers'
 export { recordStockCount, updateStockCount, deleteStockCount } from './stock'
+export {
+  createCashAccount,
+  recordCashMovement,
+  updateCashMovement,
+  deleteCashMovement,
+  setDefaultCashAccount,
+  transferBetweenCashAccounts,
+} from './cash-accounts'
 export { computeDiscount, currentPeriod, setDiscountTiers, getSupplierCycleProgress, checkAndGrantSupplierCycle, type PartyType } from './discounts'
 export {
   createVehicle,

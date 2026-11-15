@@ -17,6 +17,7 @@ import {
 } from '@/lib/db/schema'
 import { deleteSupplierDelivery, recordSupplierDelivery, updateSupplierDelivery } from '@/lib/db/mutations/suppliers'
 import { deleteSupplierPayment, recordSupplierPayment, updateSupplierPayment } from '@/lib/db/mutations/payments'
+import { cleanupCashMovements } from './helpers/cash-cleanup'
 
 const actor = { userId: 'u1', userName: 'Admin Test' }
 const runId = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -48,6 +49,17 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // recordSupplierPayment/updateSupplierPayment/deleteSupplierPayment auto-route into the real
+  // caisse (lib/db/mutations/cash-accounts.ts) — clean those movements up before the payments
+  // themselves disappear, otherwise fake test money permanently pollutes the real caisse.
+  const paymentDescriptions = paymentIds.flatMap((id) => [
+    `Paiement fournisseur #${id}`,
+    `Correction paiement fournisseur #${id} (ancien montant)`,
+    `Correction paiement fournisseur #${id} (nouveau montant)`,
+    `Annulation paiement fournisseur #${id}`,
+  ])
+  await cleanupCashMovements(paymentDescriptions)
+
   for (const id of paymentIds) {
     await db.delete(auditLog).where(and(eq(auditLog.entityType, 'supplier_payment'), eq(auditLog.entityId, id)))
     await db.delete(supplierPaymentAllocations).where(eq(supplierPaymentAllocations.paymentId, id))

@@ -2,6 +2,7 @@ import { and, asc, eq, isNull, ne } from 'drizzle-orm'
 import { db } from '../client'
 import { paymentAllocations, payments, paymentMethod, receivables, supplierPaymentAllocations, supplierPayables, supplierPayments } from '../schema'
 import { writeAuditLog, type Actor } from './audit'
+import { recordAutoCashMovement } from './cash-accounts'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -48,7 +49,7 @@ async function reversePaymentAllocations(tx: Tx, paymentId: number) {
 }
 
 export async function recordPayment(input: { clientId: number; amount: number; method: (typeof paymentMethod)[number]; storeId: number }) {
-  return db.transaction(async (tx) => {
+  const payment = await db.transaction(async (tx) => {
     const [payment] = await tx
       .insert(payments)
       .values({ clientId: input.clientId, saleId: null, storeId: input.storeId, amount: input.amount, method: input.method })
@@ -57,6 +58,16 @@ export async function recordPayment(input: { clientId: number; amount: number; m
     await allocateToReceivables(tx, payment.id, input.clientId, input.amount)
     return payment
   })
+
+  await recordAutoCashMovement({
+    direction: 'in',
+    amount: input.amount,
+    storeId: input.storeId,
+    category: 'Encaissement client',
+    description: `Paiement #${payment.id}`,
+  })
+
+  return payment
 }
 
 export async function updatePayment(
@@ -69,7 +80,7 @@ export async function updatePayment(
     throw new Error('Le montant doit être supérieur à zéro.')
   }
 
-  return db.transaction(async (tx) => {
+  const { existing, updated } = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(payments).where(and(eq(payments.id, id), isNull(payments.deletedAt))).for('update')
     if (!existing) {
       throw new Error('Paiement introuvable.')
@@ -98,12 +109,29 @@ export async function updatePayment(
       afterData: updated,
     })
 
-    return updated
+    return { existing, updated }
   })
+
+  await recordAutoCashMovement({
+    direction: 'out',
+    amount: existing.amount,
+    storeId: existing.storeId,
+    category: 'Correction paiement',
+    description: `Correction paiement #${existing.id} (ancien montant)`,
+  })
+  await recordAutoCashMovement({
+    direction: 'in',
+    amount: input.amount,
+    storeId: input.storeId,
+    category: 'Correction paiement',
+    description: `Correction paiement #${existing.id} (nouveau montant)`,
+  })
+
+  return updated
 }
 
 export async function deletePayment(id: number, actor: Actor, reason?: string) {
-  return db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(payments).where(and(eq(payments.id, id), isNull(payments.deletedAt))).for('update')
     if (!existing) {
       throw new Error('Paiement introuvable.')
@@ -131,6 +159,16 @@ export async function deletePayment(id: number, actor: Actor, reason?: string) {
 
     return deleted
   })
+
+  await recordAutoCashMovement({
+    direction: 'out',
+    amount: deleted.amount,
+    storeId: deleted.storeId,
+    category: 'Annulation paiement',
+    description: `Annulation paiement #${deleted.id}`,
+  })
+
+  return deleted
 }
 
 /** Supplier-side mirror of `allocateToReceivables`/`reversePaymentAllocations` above. */
@@ -170,7 +208,7 @@ async function reverseSupplierPaymentAllocations(tx: Tx, paymentId: number) {
 }
 
 export async function recordSupplierPayment(input: { supplierId: number; amount: number; method: (typeof paymentMethod)[number] }) {
-  return db.transaction(async (tx) => {
+  const payment = await db.transaction(async (tx) => {
     const [payment] = await tx
       .insert(supplierPayments)
       .values({ supplierId: input.supplierId, amount: input.amount, method: input.method })
@@ -179,6 +217,16 @@ export async function recordSupplierPayment(input: { supplierId: number; amount:
     await allocateToPayables(tx, payment.id, input.supplierId, input.amount)
     return payment
   })
+
+  // Suppliers aren't store-scoped, so this resolves to the default caisse regardless.
+  await recordAutoCashMovement({
+    direction: 'out',
+    amount: input.amount,
+    category: 'Paiement fournisseur',
+    description: `Paiement fournisseur #${payment.id}`,
+  })
+
+  return payment
 }
 
 export async function updateSupplierPayment(
@@ -191,7 +239,7 @@ export async function updateSupplierPayment(
     throw new Error('Le montant doit être supérieur à zéro.')
   }
 
-  return db.transaction(async (tx) => {
+  const { existing, updated } = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(supplierPayments).where(and(eq(supplierPayments.id, id), isNull(supplierPayments.deletedAt))).for('update')
     if (!existing) {
       throw new Error('Paiement introuvable.')
@@ -217,12 +265,29 @@ export async function updateSupplierPayment(
       afterData: updated,
     })
 
-    return updated
+    return { existing, updated }
   })
+
+  // Reversing an outflow brings that money back ("in"); applying the corrected amount sends it
+  // back out ("out") — same two-entry pattern as updatePayment above.
+  await recordAutoCashMovement({
+    direction: 'in',
+    amount: existing.amount,
+    category: 'Correction paiement fournisseur',
+    description: `Correction paiement fournisseur #${existing.id} (ancien montant)`,
+  })
+  await recordAutoCashMovement({
+    direction: 'out',
+    amount: input.amount,
+    category: 'Correction paiement fournisseur',
+    description: `Correction paiement fournisseur #${existing.id} (nouveau montant)`,
+  })
+
+  return updated
 }
 
 export async function deleteSupplierPayment(id: number, actor: Actor, reason?: string) {
-  return db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(supplierPayments).where(and(eq(supplierPayments.id, id), isNull(supplierPayments.deletedAt))).for('update')
     if (!existing) {
       throw new Error('Paiement introuvable.')
@@ -247,4 +312,13 @@ export async function deleteSupplierPayment(id: number, actor: Actor, reason?: s
 
     return deleted
   })
+
+  await recordAutoCashMovement({
+    direction: 'in',
+    amount: deleted.amount,
+    category: 'Annulation paiement fournisseur',
+    description: `Annulation paiement fournisseur #${deleted.id}`,
+  })
+
+  return deleted
 }
