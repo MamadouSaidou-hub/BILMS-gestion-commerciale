@@ -43,17 +43,16 @@ type StockCountRow = {
   createdAt: string
 }
 
+type StockReceptionItem = { productId: number; productName: string; sku: string; quantity: number }
+
 type StockReceptionRow = {
   id: number
-  productId: number
-  productName: string
-  sku: string
   storeId: number
   storeName: string
-  quantity: number
   reference: string | null
   date: string
   createdAt: string
+  items: StockReceptionItem[]
 }
 
 const statusLabel = { ok: 'OK', low: 'Faible', critical: 'Critique' }
@@ -223,18 +222,61 @@ function ImportProductsForm({ storeOptions, onImported }: { storeOptions: StoreO
   )
 }
 
+type ReceptionItemRow = { productId: string; quantity: string }
+
+function ReceptionItemRows({
+  items,
+  productOptions,
+  onChange,
+}: {
+  items: ReceptionItemRow[]
+  productOptions: ProductOption[]
+  onChange: (items: ReceptionItemRow[]) => void
+}) {
+  function update(index: number, patch: Partial<ReceptionItemRow>) {
+    onChange(items.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
+  function add() {
+    onChange([...items, { productId: '', quantity: '' }])
+  }
+  function remove(index: number) {
+    onChange(items.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div>
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Articles reçus</label>
+      {items.map((item, index) => (
+        <div key={index} className="item-row-grid" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) auto' }}>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <select required value={item.productId} onChange={(event) => update(index, { productId: event.target.value })}>
+              <option value="">Sélectionner...</option>
+              {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name} ({option.sku})</option>)}
+            </select>
+          </div>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input required type="number" min="1" placeholder="Quantité" value={item.quantity} onChange={(event) => update(index, { quantity: event.target.value })} />
+          </div>
+          <button type="button" className="item-row-remove" onClick={() => remove(index)} disabled={items.length === 1} aria-label="Retirer l’article"><Trash2 size={14} /></button>
+        </div>
+      ))}
+      <button type="button" className="item-add-link" onClick={add}><Plus size={13} /> Ajouter un article</button>
+    </div>
+  )
+}
+
 function StockReceptionForm({ storeOptions, productOptions, onCreated }: { storeOptions: StoreOption[]; productOptions: ProductOption[]; onCreated: () => void }) {
-  const [productId, setProductId] = useState('')
   const [storeId, setStoreId] = useState('')
-  const [quantity, setQuantity] = useState('')
+  const [items, setItems] = useState<ReceptionItemRow[]>([{ productId: '', quantity: '' }])
   const [reference, setReference] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!productId && productOptions.length > 0) setProductId(String(productOptions[0].id))
-  }, [productOptions, productId])
+    if (!items[0].productId && productOptions.length > 0) setItems([{ ...items[0], productId: String(productOptions[0].id) }])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productOptions])
   useEffect(() => {
     if (!storeId && storeOptions.length > 0) setStoreId(String(storeOptions[0].id))
   }, [storeOptions, storeId])
@@ -247,7 +289,7 @@ function StockReceptionForm({ storeOptions, productOptions, onCreated }: { store
       const res = await fetch('/api/stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, storeId, quantity, reference, date: date || undefined }),
+        body: JSON.stringify({ storeId, items, reference, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -266,20 +308,14 @@ function StockReceptionForm({ storeOptions, productOptions, onCreated }: { store
     <form onSubmit={handleSubmit}>
       {error && <p className="form-error">{error}</p>}
       <div className="form-field">
-        <label>Article</label>
-        <select required value={productId} onChange={(event) => setProductId(event.target.value)}>
-          {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name} ({option.sku})</option>)}
+        <label>Magasin</label>
+        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
         </select>
       </div>
-      <div className="form-row">
-        <div className="form-field">
-          <label>Magasin</label>
-          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
-            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </div>
-        <div className="form-field"><label>Quantité reçue</label><input required type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
-      </div>
+
+      <ReceptionItemRows items={items} productOptions={productOptions} onChange={setItems} />
+
       <div className="form-row">
         <div className="form-field">
           <label>Date de réception</label>
@@ -468,9 +504,8 @@ function EditReceptionForm({
   productOptions: ProductOption[]
   onSaved: () => void
 }) {
-  const [productId, setProductId] = useState(String(row.productId))
   const [storeId, setStoreId] = useState(String(row.storeId))
-  const [quantity, setQuantity] = useState(String(row.quantity))
+  const [items, setItems] = useState<ReceptionItemRow[]>(row.items.map((item) => ({ productId: String(item.productId), quantity: String(item.quantity) })))
   const [reference, setReference] = useState(row.reference ?? '')
   const [date, setDate] = useState((row.date ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
@@ -485,7 +520,7 @@ function EditReceptionForm({
       const res = await fetch(`/api/stock/receptions/${row.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, storeId, quantity, reference, date: date || undefined, reason: reason || undefined }),
+        body: JSON.stringify({ storeId, items, reference, date: date || undefined, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -508,20 +543,14 @@ function EditReceptionForm({
         saisie correctement du premier coup.
       </p>
       <div className="form-field">
-        <label>Article</label>
-        <select required value={productId} onChange={(event) => setProductId(event.target.value)}>
-          {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name} ({option.sku})</option>)}
+        <label>Magasin</label>
+        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
         </select>
       </div>
-      <div className="form-row">
-        <div className="form-field">
-          <label>Magasin</label>
-          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
-            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </div>
-        <div className="form-field"><label>Quantité reçue</label><input required type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
-      </div>
+
+      <ReceptionItemRows items={items} productOptions={productOptions} onChange={setItems} />
+
       <div className="form-row">
         <div className="form-field"><label>Date de réception</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
         <div className="form-field"><label>Référence (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
@@ -563,8 +592,8 @@ function DeleteReceptionConfirm({ row, onClose, onDone }: { row: StockReceptionR
     <div>
       {error && <p className="form-error">{error}</p>}
       <p className="section-subtitle">
-        Les {row.quantity} articles reçus seront retirés du stock de {row.productName} — {row.storeName}. La réception reste
-        visible en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste.
+        {row.items.map((item) => `${item.quantity} × ${item.productName}`).join(', ')} seront retirés du stock de {row.storeName}. La
+        réception reste visible en base (avec qui et quand) à des fins d’audit, mais disparaît de la liste.
       </p>
       <div className="form-field"><label>Motif (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions">
@@ -777,9 +806,8 @@ export function StockView() {
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Produit</th>
+                  <th>Articles</th>
                   <th>Magasin</th>
-                  <th>Quantité</th>
                   <th>Référence</th>
                   {isAdmin && <th></th>}
                 </tr>
@@ -788,9 +816,8 @@ export function StockView() {
                 {receptions.map((row) => (
                   <tr key={row.id}>
                     <td data-label="Date">{new Date(row.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                    <td data-label="Produit">{row.productName} ({row.sku})</td>
+                    <td data-label="Articles" style={{ fontWeight: 700 }}>{row.items.map((item) => `${item.productName} +${item.quantity}`).join(', ')}</td>
                     <td data-label="Magasin">{row.storeName}</td>
-                    <td data-label="Quantité" style={{ fontWeight: 700 }}>+{row.quantity}</td>
                     <td data-label="Référence">{row.reference ?? '—'}</td>
                     {isAdmin && (
                       <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

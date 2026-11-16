@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db/client'
-import { clients, discountApplications, discountScales, discountTiers, products, sales, stores, supplierDeliveries, suppliers } from '@/lib/db/schema'
+import { clients, discountApplications, discountScales, discountTiers, products, sales, stores, supplierDeliveries, supplierDeliveryItems, suppliers } from '@/lib/db/schema'
 import { checkAndGrantSupplierCycle, computeDiscount, getSupplierCycleProgress, setDiscountTiers } from '@/lib/db/mutations/discounts'
 
 // Integration test — runs against the real Supabase Postgres DB (no separate test DB available on the
@@ -14,13 +14,8 @@ let storeId: number
 let productId: number
 
 async function deliver(sackCount: number) {
-  await db.insert(supplierDeliveries).values({
-    supplierId,
-    storeId,
-    productId,
-    sackCount,
-    totalAmount: 0,
-  })
+  const [delivery] = await db.insert(supplierDeliveries).values({ supplierId, storeId, totalAmount: 0 }).returning()
+  await db.insert(supplierDeliveryItems).values({ deliveryId: delivery.id, productId, sackCount, unitCost: 0 })
 }
 
 beforeAll(async () => {

@@ -103,6 +103,9 @@ export const stockCounts = pgTable(
   (table) => [index('stock_counts_store_id_idx').on(table.storeId), index('stock_counts_product_id_idx').on(table.productId)],
 )
 
+// Can cover several products in one reception (one delivery truck, several articles) — mirrors
+// supplierDeliveries: the reception is just the header, `stockReceptionItems` holds the per-product
+// lines, deleted-and-reinserted together on an edit.
 export const stockReceptions = pgTable(
   'stock_receptions',
   {
@@ -110,10 +113,6 @@ export const stockReceptions = pgTable(
     storeId: integer('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
-    productId: integer('product_id')
-      .notNull()
-      .references(() => products.id, { onDelete: 'cascade' }),
-    quantity: integer('quantity').notNull(),
     reference: text('reference'),
     // Backdatable "YYYY-MM-DD" (like sales.saleDate) — null means it happened the day it was
     // entered, so reports fall back to createdAt for those.
@@ -121,7 +120,22 @@ export const stockReceptions = pgTable(
     deletedAt: text('deleted_at'),
     ...timestamps,
   },
-  (table) => [index('stock_receptions_store_id_idx').on(table.storeId), index('stock_receptions_product_id_idx').on(table.productId)],
+  (table) => [index('stock_receptions_store_id_idx').on(table.storeId)],
+)
+
+export const stockReceptionItems = pgTable(
+  'stock_reception_items',
+  {
+    id: serial('id').primaryKey(),
+    receptionId: integer('reception_id')
+      .notNull()
+      .references(() => stockReceptions.id, { onDelete: 'cascade' }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    quantity: integer('quantity').notNull(),
+  },
+  (table) => [index('stock_reception_items_reception_id_idx').on(table.receptionId), index('stock_reception_items_product_id_idx').on(table.productId)],
 )
 
 export const clients = pgTable(
@@ -316,6 +330,11 @@ export const suppliers = pgTable('suppliers', {
   ...timestamps,
 })
 
+// A delivery can carry several products (and a transport/handling fee) under one invoice total —
+// mirrors sales/saleItems: the delivery itself is just the header (supplier, store, reference,
+// total, payment terms); `supplierDeliveryItems` holds the product lines and `supplierDeliveryCharges`
+// holds non-product lines (transport, manutention...), both deleted-and-reinserted together on an
+// edit, same as updateSale does with saleItems.
 export const supplierDeliveries = pgTable(
   'supplier_deliveries',
   {
@@ -326,12 +345,7 @@ export const supplierDeliveries = pgTable(
     storeId: integer('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
-    productId: integer('product_id')
-      .notNull()
-      .references(() => products.id, { onDelete: 'restrict' }),
     reference: text('reference'),
-    sackCount: integer('sack_count').notNull(),
-    tonnage: doublePrecision('tonnage'),
     totalAmount: doublePrecision('total_amount').notNull(),
     // Backdatable "YYYY-MM-DD" (like sales.saleDate) — null means it happened the day it was
     // entered, so reports fall back to createdAt for those.
@@ -342,9 +356,43 @@ export const supplierDeliveries = pgTable(
   (table) => [
     index('supplier_deliveries_supplier_id_idx').on(table.supplierId),
     index('supplier_deliveries_store_id_idx').on(table.storeId),
-    index('supplier_deliveries_product_id_idx').on(table.productId),
     index('supplier_deliveries_created_at_idx').on(table.createdAt),
   ],
+)
+
+export const supplierDeliveryItems = pgTable(
+  'supplier_delivery_items',
+  {
+    id: serial('id').primaryKey(),
+    deliveryId: integer('delivery_id')
+      .notNull()
+      .references(() => supplierDeliveries.id, { onDelete: 'cascade' }),
+    productId: integer('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'restrict' }),
+    sackCount: integer('sack_count').notNull(),
+    tonnage: doublePrecision('tonnage'),
+    // Snapshot of the product's cost price at the time of this delivery (like saleItems.unitPrice)
+    // — a later catalog price change must never retroactively change what a past delivery cost.
+    unitCost: doublePrecision('unit_cost').notNull(),
+  },
+  (table) => [index('supplier_delivery_items_delivery_id_idx').on(table.deliveryId), index('supplier_delivery_items_product_id_idx').on(table.productId)],
+)
+
+export const supplierDeliveryCharges = pgTable(
+  'supplier_delivery_charges',
+  {
+    id: serial('id').primaryKey(),
+    deliveryId: integer('delivery_id')
+      .notNull()
+      .references(() => supplierDeliveries.id, { onDelete: 'cascade' }),
+    // Free text (like rentalCharges.description) — transport, manutention... varies too much
+    // between suppliers to be a fixed enum.
+    description: text('description').notNull(),
+    quantity: doublePrecision('quantity').notNull().default(1),
+    unitPrice: doublePrecision('unit_price').notNull(),
+  },
+  (table) => [index('supplier_delivery_charges_delivery_id_idx').on(table.deliveryId)],
 )
 
 export const supplierPayableStatus = ['pending', 'paid', 'overdue'] as const

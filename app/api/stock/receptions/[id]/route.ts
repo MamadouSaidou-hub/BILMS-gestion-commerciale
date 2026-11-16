@@ -14,13 +14,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!Number.isFinite(receptionId)) return NextResponse.json({ error: 'Réception invalide.' }, { status: 400 })
 
   const body = await request.json()
-  const productId = Number(body.productId)
   const storeId = Number(body.storeId)
-  const quantity = Number(body.quantity)
   const date = body.date ? String(body.date) : undefined
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
+  const rawItems = Array.isArray(body.items) ? body.items : []
+  const items = rawItems.map((item: { productId: unknown; quantity: unknown }) => ({
+    productId: Number(item.productId),
+    quantity: Number(item.quantity),
+  }))
 
-  if (!Number.isFinite(productId) || !Number.isFinite(storeId) || !Number.isFinite(quantity) || quantity <= 0) {
+  if (
+    !Number.isFinite(storeId) ||
+    items.length === 0 ||
+    items.some((item: { productId: number; quantity: number }) => !Number.isFinite(item.productId) || !Number.isFinite(item.quantity) || item.quantity <= 0)
+  ) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
   if (date !== undefined && !isValidDateString(date)) {
@@ -30,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const reception = await updateStockReception(
       receptionId,
-      { productId, storeId, quantity, reference: body.reference ? String(body.reference) : undefined, date },
+      { storeId, items, reference: body.reference ? String(body.reference) : undefined, date },
       { userId: ctx.userId, userName: ctx.userName },
       reason,
     )

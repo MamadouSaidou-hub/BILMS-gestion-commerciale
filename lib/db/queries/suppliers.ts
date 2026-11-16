@@ -1,6 +1,15 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
-import { products, stores, supplierDeliveries, supplierPayables, supplierPayments, suppliers } from '../schema'
+import {
+  products,
+  stores,
+  supplierDeliveries,
+  supplierDeliveryCharges,
+  supplierDeliveryItems,
+  supplierPayables,
+  supplierPayments,
+  suppliers,
+} from '../schema'
 import { formatFcfa, isPastDue } from '@/lib/format'
 import { effectiveDate } from './effective-date'
 
@@ -14,7 +23,12 @@ export async function getSuppliersOverview() {
     .from(supplierPayments)
     .where(isNull(supplierPayments.deletedAt))
   const deliveryRows = await db
-    .select({ supplierId: supplierDeliveries.supplierId, sackCount: supplierDeliveries.sackCount, createdAt: supplierDeliveries.createdAt })
+    .select({
+      id: supplierDeliveries.id,
+      supplierId: supplierDeliveries.supplierId,
+      createdAt: supplierDeliveries.createdAt,
+      sackCount: sql<number>`coalesce((select sum(${supplierDeliveryItems.sackCount}) from ${supplierDeliveryItems} where ${supplierDeliveryItems.deliveryId} = ${supplierDeliveries.id}), 0)`.mapWith(Number),
+    })
     .from(supplierDeliveries)
     .where(isNull(supplierDeliveries.deletedAt))
 
@@ -60,16 +74,12 @@ export async function getSupplierOptions() {
 }
 
 export async function getSupplierDeliveryHistory(supplierId: number) {
-  const rows = await db
+  const deliveries = await db
     .select({
       id: supplierDeliveries.id,
       storeId: supplierDeliveries.storeId,
       storeName: stores.name,
-      productId: supplierDeliveries.productId,
-      productName: products.name,
       reference: supplierDeliveries.reference,
-      sackCount: supplierDeliveries.sackCount,
-      tonnage: supplierDeliveries.tonnage,
       totalAmount: supplierDeliveries.totalAmount,
       date: supplierDeliveries.date,
       effectiveDate: sql<string>`${effectiveDate(supplierDeliveries.date, supplierDeliveries.createdAt)}`,
@@ -77,11 +87,48 @@ export async function getSupplierDeliveryHistory(supplierId: number) {
     })
     .from(supplierDeliveries)
     .innerJoin(stores, eq(supplierDeliveries.storeId, stores.id))
-    .innerJoin(products, eq(supplierDeliveries.productId, products.id))
     .where(and(eq(supplierDeliveries.supplierId, supplierId), isNull(supplierDeliveries.deletedAt)))
     .orderBy(desc(sql`${effectiveDate(supplierDeliveries.date, supplierDeliveries.createdAt)}`))
 
-  return rows.map((row) => ({ ...row, totalAmountFormatted: formatFcfa(row.totalAmount) }))
+  if (deliveries.length === 0) return []
+
+  const deliveryIds = deliveries.map((delivery) => delivery.id)
+  const [itemRows, chargeRows] = await Promise.all([
+    db
+      .select({
+        deliveryId: supplierDeliveryItems.deliveryId,
+        productId: supplierDeliveryItems.productId,
+        productName: products.name,
+        sackCount: supplierDeliveryItems.sackCount,
+        tonnage: supplierDeliveryItems.tonnage,
+        unitCost: supplierDeliveryItems.unitCost,
+      })
+      .from(supplierDeliveryItems)
+      .innerJoin(products, eq(supplierDeliveryItems.productId, products.id))
+      .where(inArray(supplierDeliveryItems.deliveryId, deliveryIds)),
+    db
+      .select({ deliveryId: supplierDeliveryCharges.deliveryId, description: supplierDeliveryCharges.description, quantity: supplierDeliveryCharges.quantity, unitPrice: supplierDeliveryCharges.unitPrice })
+      .from(supplierDeliveryCharges)
+      .where(inArray(supplierDeliveryCharges.deliveryId, deliveryIds)),
+  ])
+
+  return deliveries.map((delivery) => {
+    const items = itemRows
+      .filter((item) => item.deliveryId === delivery.id)
+      .map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        sackCount: item.sackCount,
+        tonnage: item.tonnage,
+        unitCost: item.unitCost,
+        lineTotal: item.sackCount * item.unitCost,
+      }))
+    const charges = chargeRows
+      .filter((charge) => charge.deliveryId === delivery.id)
+      .map((charge) => ({ description: charge.description, quantity: charge.quantity, unitPrice: charge.unitPrice, lineTotal: charge.quantity * charge.unitPrice }))
+
+    return { ...delivery, totalAmountFormatted: formatFcfa(delivery.totalAmount), items, charges }
+  })
 }
 
 export async function getSupplierPaymentHistory(supplierId: number) {

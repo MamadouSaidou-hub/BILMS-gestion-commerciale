@@ -28,17 +28,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await request.json()
 
   const storeId = Number(body.storeId)
-  const productId = Number(body.productId)
-  const sackCount = Number(body.sackCount)
   const paymentStatus = body.paymentStatus as 'paid' | 'partial' | 'credit'
   const date = body.date ? String(body.date) : undefined
+  const rawItems = Array.isArray(body.items) ? body.items : []
+  const items = rawItems.map((item: { productId: unknown; sackCount: unknown; tonnage?: unknown }) => ({
+    productId: Number(item.productId),
+    sackCount: Number(item.sackCount),
+    tonnage: item.tonnage ? Number(item.tonnage) : null,
+  }))
+  const rawCharges = Array.isArray(body.charges) ? body.charges : []
+  const charges = rawCharges.map((charge: { description: unknown; quantity: unknown; unitPrice: unknown }) => ({
+    description: String(charge.description ?? '').trim(),
+    quantity: Number(charge.quantity ?? 1),
+    unitPrice: Number(charge.unitPrice),
+  }))
 
   if (
     !Number.isFinite(supplierId) ||
     !Number.isFinite(storeId) ||
-    !Number.isFinite(productId) ||
-    !Number.isFinite(sackCount) ||
-    sackCount <= 0 ||
+    items.length === 0 ||
+    items.some((item: { productId: number; sackCount: number }) => !Number.isFinite(item.productId) || !Number.isFinite(item.sackCount) || item.sackCount <= 0) ||
+    charges.some((charge: { description: string; unitPrice: number }) => !charge.description || !Number.isFinite(charge.unitPrice) || charge.unitPrice <= 0) ||
     !['paid', 'partial', 'credit'].includes(paymentStatus)
   ) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
@@ -51,9 +61,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const delivery = await recordSupplierDelivery({
       supplierId,
       storeId,
-      productId,
-      sackCount,
-      tonnage: body.tonnage ? Number(body.tonnage) : null,
+      items,
+      charges,
       reference: body.reference ? String(body.reference) : undefined,
       date,
       paymentStatus,

@@ -1,6 +1,6 @@
 import { and, eq, gt, gte, isNull, lt } from 'drizzle-orm'
 import { db } from '../client'
-import { discountApplications, discountScales, discountTiers, saleItems, sales, supplierDeliveries } from '../schema'
+import { discountApplications, discountScales, discountTiers, saleItems, sales, supplierDeliveries, supplierDeliveryItems } from '../schema'
 
 export type PartyType = 'client' | 'supplier'
 
@@ -44,8 +44,9 @@ async function sacksMovedInPeriod(partyType: PartyType, partyId: number, period:
   }
 
   const rows = await db
-    .select({ sackCount: supplierDeliveries.sackCount })
-    .from(supplierDeliveries)
+    .select({ sackCount: supplierDeliveryItems.sackCount })
+    .from(supplierDeliveryItems)
+    .innerJoin(supplierDeliveries, eq(supplierDeliveryItems.deliveryId, supplierDeliveries.id))
     .where(and(eq(supplierDeliveries.supplierId, partyId), gte(supplierDeliveries.createdAt, start.toISOString()), lt(supplierDeliveries.createdAt, end.toISOString())))
   return rows.reduce((sum, row) => sum + row.sackCount, 0)
 }
@@ -89,8 +90,9 @@ async function sacksSinceCycleStart(supplierId: number, cycleStartAt: string | n
   // the same instant. An inclusive bound would re-count that delivery into the very next cycle it just
   // closed out.
   const rows = await db
-    .select({ sackCount: supplierDeliveries.sackCount })
-    .from(supplierDeliveries)
+    .select({ sackCount: supplierDeliveryItems.sackCount })
+    .from(supplierDeliveryItems)
+    .innerJoin(supplierDeliveries, eq(supplierDeliveryItems.deliveryId, supplierDeliveries.id))
     .where(and(eq(supplierDeliveries.supplierId, supplierId), cycleStartAt ? gt(supplierDeliveries.createdAt, cycleStartAt) : undefined))
   return rows.reduce((sum, row) => sum + row.sackCount, 0)
 }

@@ -41,13 +41,19 @@ export async function POST(request: NextRequest) {
   if (!ctx) return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 })
 
   const body = await request.json()
-  const productId = Number(body.productId)
   const storeId = Number(body.storeId)
-  const quantity = Number(body.quantity)
-
   const date = body.date ? String(body.date) : undefined
+  const rawItems = Array.isArray(body.items) ? body.items : []
+  const items = rawItems.map((item: { productId: unknown; quantity: unknown }) => ({
+    productId: Number(item.productId),
+    quantity: Number(item.quantity),
+  }))
 
-  if (!Number.isFinite(productId) || !Number.isFinite(storeId) || !Number.isFinite(quantity) || quantity <= 0) {
+  if (
+    !Number.isFinite(storeId) ||
+    items.length === 0 ||
+    items.some((item: { productId: number; quantity: number }) => !Number.isFinite(item.productId) || !Number.isFinite(item.quantity) || item.quantity <= 0)
+  ) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
   if (date !== undefined && !isValidDateString(date)) {
@@ -59,7 +65,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await recordStockReception({ productId, storeId, quantity, reference: body.reference ? String(body.reference) : undefined, date })
+    await recordStockReception({ storeId, items, reference: body.reference ? String(body.reference) : undefined, date })
     return NextResponse.json({ ok: true }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

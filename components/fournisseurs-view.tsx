@@ -80,6 +80,92 @@ function NewSupplierForm({ onCreated }: { onCreated: () => void }) {
   )
 }
 
+type DeliveryItemRow = { productId: string; sackCount: string; tonnage: string }
+type DeliveryChargeRow = { description: string; quantity: string; unitPrice: string }
+
+function DeliveryItemRows({
+  items,
+  productOptions,
+  onChange,
+}: {
+  items: DeliveryItemRow[]
+  productOptions: ProductOption[]
+  onChange: (items: DeliveryItemRow[]) => void
+}) {
+  function update(index: number, patch: Partial<DeliveryItemRow>) {
+    onChange(items.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
+  function add() {
+    onChange([...items, { productId: '', sackCount: '', tonnage: '' }])
+  }
+  function remove(index: number) {
+    onChange(items.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div>
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Articles livrés</label>
+      {items.map((item, index) => (
+        <div key={index} className="item-row-grid">
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <select required value={item.productId} onChange={(event) => update(index, { productId: event.target.value })}>
+              <option value="">Sélectionner...</option>
+              {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </select>
+          </div>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input required type="number" min="1" placeholder={`Nb ${businessConfig.unit.basePluralLower}`} value={item.sackCount} onChange={(event) => update(index, { sackCount: event.target.value })} />
+          </div>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input type="number" min="0" step="0.01" placeholder="Poids (optionnel)" value={item.tonnage} onChange={(event) => update(index, { tonnage: event.target.value })} />
+          </div>
+          <button type="button" className="item-row-remove" onClick={() => remove(index)} disabled={items.length === 1} aria-label="Retirer l’article"><Trash2 size={14} /></button>
+        </div>
+      ))}
+      <button type="button" className="item-add-link" onClick={add}><Plus size={13} /> Ajouter un article</button>
+    </div>
+  )
+}
+
+function DeliveryChargeRows({
+  charges,
+  onChange,
+}: {
+  charges: DeliveryChargeRow[]
+  onChange: (charges: DeliveryChargeRow[]) => void
+}) {
+  function update(index: number, patch: Partial<DeliveryChargeRow>) {
+    onChange(charges.map((charge, i) => (i === index ? { ...charge, ...patch } : charge)))
+  }
+  function add() {
+    onChange([...charges, { description: '', quantity: '1', unitPrice: '' }])
+  }
+  function remove(index: number) {
+    onChange(charges.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div>
+      <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Frais (transport, manutention...) — optionnel</label>
+      {charges.map((charge, index) => (
+        <div key={index} className="item-row-grid">
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input placeholder="Ex : Transport" value={charge.description} onChange={(event) => update(index, { description: event.target.value })} />
+          </div>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input type="number" min="0.01" step="0.01" placeholder="Qté" value={charge.quantity} onChange={(event) => update(index, { quantity: event.target.value })} />
+          </div>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <input type="number" min="0" placeholder="Prix unitaire" value={charge.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value })} />
+          </div>
+          <button type="button" className="item-row-remove" onClick={() => remove(index)} aria-label="Retirer le frais"><Trash2 size={14} /></button>
+        </div>
+      ))}
+      <button type="button" className="item-add-link" onClick={add}><Plus size={13} /> Ajouter un frais</button>
+    </div>
+  )
+}
+
 function RecordDeliveryForm({
   supplier,
   storeOptions,
@@ -92,9 +178,8 @@ function RecordDeliveryForm({
   onCreated: () => void
 }) {
   const [storeId, setStoreId] = useState('')
-  const [productId, setProductId] = useState('')
-  const [sackCount, setSackCount] = useState('')
-  const [tonnage, setTonnage] = useState('')
+  const [items, setItems] = useState<DeliveryItemRow[]>([{ productId: '', sackCount: '', tonnage: '' }])
+  const [charges, setCharges] = useState<DeliveryChargeRow[]>([])
   const [reference, setReference] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'partial' | 'credit'>('credit')
@@ -117,9 +202,10 @@ function RecordDeliveryForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId,
-          productId,
-          sackCount,
-          tonnage: tonnage || null,
+          items: items.map((item) => ({ productId: item.productId, sackCount: item.sackCount, tonnage: item.tonnage || null })),
+          charges: charges
+            .filter((charge) => charge.description.trim())
+            .map((charge) => ({ description: charge.description, quantity: charge.quantity, unitPrice: charge.unitPrice })),
           reference: reference || undefined,
           date: date || undefined,
           paymentStatus,
@@ -150,22 +236,13 @@ function RecordDeliveryForm({
             {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
           </select>
         </div>
-        <div className="form-field">
-          <label>Produit</label>
-          <select required value={productId} onChange={(event) => setProductId(event.target.value)}>
-            <option value="">Sélectionner...</option>
-            {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="form-row">
-        <div className="form-field"><label>Nombre de {businessConfig.unit.basePluralLower}</label><input required type="number" min="1" value={sackCount} onChange={(event) => setSackCount(event.target.value)} /></div>
-        <div className="form-field"><label>Poids/volume (optionnel)</label><input type="number" min="0" step="0.01" value={tonnage} onChange={(event) => setTonnage(event.target.value)} placeholder="Pour info uniquement" /></div>
-      </div>
-      <div className="form-row">
         <div className="form-field"><label>Date de livraison</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
-        <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ex : plaque du camion" /></div>
       </div>
+
+      <DeliveryItemRows items={items} productOptions={productOptions} onChange={setItems} />
+      <DeliveryChargeRows charges={charges} onChange={setCharges} />
+
+      <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ex : plaque du camion" /></div>
 
       <div className="form-row">
         <div className="form-field">
@@ -241,20 +318,21 @@ function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier
   )
 }
 
+type DeliveryItem = { productId: number; productName: string; sackCount: number; tonnage: number | null; unitCost: number; lineTotal: number }
+type DeliveryCharge = { description: string; quantity: number; unitPrice: number; lineTotal: number }
+
 type DeliveryRow = {
   id: number
   storeId: number
   storeName: string
-  productId: number
-  productName: string
   reference: string | null
-  sackCount: number
-  tonnage: number | null
   totalAmount: number
   totalAmountFormatted: string
   date: string | null
   effectiveDate: string
   createdAt: string
+  items: DeliveryItem[]
+  charges: DeliveryCharge[]
 }
 
 type SupplierPaymentRow = {
@@ -281,9 +359,12 @@ function EditDeliveryForm({
   onSaved: () => void
 }) {
   const [storeId, setStoreId] = useState(String(delivery.storeId))
-  const [productId, setProductId] = useState(String(delivery.productId))
-  const [sackCount, setSackCount] = useState(String(delivery.sackCount))
-  const [tonnage, setTonnage] = useState(delivery.tonnage !== null ? String(delivery.tonnage) : '')
+  const [items, setItems] = useState<DeliveryItemRow[]>(
+    delivery.items.map((item) => ({ productId: String(item.productId), sackCount: String(item.sackCount), tonnage: item.tonnage !== null ? String(item.tonnage) : '' })),
+  )
+  const [charges, setCharges] = useState<DeliveryChargeRow[]>(
+    delivery.charges.map((charge) => ({ description: charge.description, quantity: String(charge.quantity), unitPrice: String(charge.unitPrice) })),
+  )
   const [reference, setReference] = useState(delivery.reference ?? '')
   const [date, setDate] = useState((delivery.date ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
@@ -300,12 +381,13 @@ function EditDeliveryForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId,
-          productId,
-          sackCount,
-          tonnage: tonnage || null,
+          items: items.map((item) => ({ productId: item.productId, sackCount: item.sackCount, tonnage: item.tonnage || null })),
+          charges: charges
+            .filter((charge) => charge.description.trim())
+            .map((charge) => ({ description: charge.description, quantity: charge.quantity, unitPrice: charge.unitPrice })),
           reference: reference || null,
           date: date || null,
-          paymentStatus: 'paid', // Payment terms aren't corrected here — only quantity/product/store/date.
+          paymentStatus: 'paid', // Payment terms aren't corrected here — only lines/store/date.
           paidNow: 0,
           dueInDays: 30,
           reason: reason || undefined,
@@ -335,21 +417,13 @@ function EditDeliveryForm({
             {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
           </select>
         </div>
-        <div className="form-field">
-          <label>Produit</label>
-          <select required value={productId} onChange={(event) => setProductId(event.target.value)}>
-            {productOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="form-row">
-        <div className="form-field"><label>Nombre de {businessConfig.unit.basePluralLower}</label><input required type="number" min="1" value={sackCount} onChange={(event) => setSackCount(event.target.value)} /></div>
-        <div className="form-field"><label>Poids/volume (optionnel)</label><input type="number" min="0" step="0.01" value={tonnage} onChange={(event) => setTonnage(event.target.value)} /></div>
-      </div>
-      <div className="form-row">
         <div className="form-field"><label>Date de livraison</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
-        <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
       </div>
+
+      <DeliveryItemRows items={items} productOptions={productOptions} onChange={setItems} />
+      <DeliveryChargeRows charges={charges} onChange={setCharges} />
+
+      <div className="form-field"><label>Référence bon de livraison (optionnel)</label><input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <p className="section-subtitle" style={{ fontSize: 11 }}>Le statut de paiement n’est pas modifié ici — si cette livraison a déjà une dette en cours, elle est recréée au même montant recalculé.</p>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
@@ -536,14 +610,17 @@ function SupplierHistory({
       <p className="section-title">Livraisons</p>
       <div className="table-scroll">
         <table className="data-table">
-          <thead><tr><th>Date</th><th>Produit</th><th>Magasin</th><th>{businessConfig.unit.basePlural}</th><th>Montant</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Articles</th><th>Magasin</th><th>{businessConfig.unit.basePlural}</th><th>Montant</th><th></th></tr></thead>
           <tbody>
             {deliveries.map((delivery) => (
               <tr key={delivery.id}>
                 <td data-label="Date">{new Date(delivery.effectiveDate).toLocaleDateString('fr-FR')}</td>
-                <td data-label="Produit">{delivery.productName}</td>
+                <td data-label="Articles">
+                  {delivery.items.map((item) => `${item.productName} ×${item.sackCount}`).join(', ')}
+                  {delivery.charges.length > 0 && <span style={{ color: 'var(--muted)' }}> + {delivery.charges.map((charge) => charge.description).join(', ')}</span>}
+                </td>
                 <td data-label="Magasin">{delivery.storeName}</td>
-                <td data-label={businessConfig.unit.basePlural}>{delivery.sackCount}</td>
+                <td data-label={businessConfig.unit.basePlural}>{delivery.items.reduce((sum, item) => sum + item.sackCount, 0)}</td>
                 <td data-label="Montant">{delivery.totalAmountFormatted}</td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn-ghost" onClick={() => setEditingDelivery(delivery)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>

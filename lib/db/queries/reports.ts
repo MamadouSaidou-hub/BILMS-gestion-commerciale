@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
-import { clients, products, saleItems, sales, stores, supplierDeliveries, supplierPayments } from '../schema'
+import { clients, products, saleItems, sales, stores, supplierDeliveries, supplierDeliveryItems, supplierPayments } from '../schema'
 import { formatFcfa } from '@/lib/format'
 import { periodRange, periodTrendBuckets, type CustomRange, type PeriodKey } from '@/lib/period'
 import { saleDateGte, saleDateLt } from './sale-date'
@@ -70,7 +70,7 @@ export async function getReportsOverview(period: PeriodKey, custom?: CustomRange
       .groupBy(sales.paymentStatus),
     db
       .select({
-        totalSacks: sql<number>`coalesce(sum(${supplierDeliveries.sackCount}), 0)`.mapWith(Number),
+        totalSacks: sql<number>`coalesce(sum((select coalesce(sum(${supplierDeliveryItems.sackCount}), 0) from ${supplierDeliveryItems} where ${supplierDeliveryItems.deliveryId} = ${supplierDeliveries.id})), 0)`.mapWith(Number),
         deliveriesCount: sql<number>`count(*)`.mapWith(Number),
       })
       .from(supplierDeliveries)
