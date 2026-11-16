@@ -383,7 +383,7 @@ export function CaisseView() {
     }
   }
 
-  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+  const { signature: periodSignature, ready: periodReady, params: periodParams } = periodFilter
 
   useEffect(() => {
     if (!periodReady) return
@@ -404,7 +404,7 @@ export function CaisseView() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, isCustom, customFrom, customTo, periodReady, refreshKey])
+  }, [periodSignature, periodReady, refreshKey])
 
   const accounts = data?.accounts ?? []
 

@@ -162,7 +162,7 @@ export function TransfertsView() {
   const [receivingTransfer, setReceivingTransfer] = useState<Transfer | null>(null)
   const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().slice(0, 10))
 
-  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+  const { signature: periodSignature, ready: periodReady, params: periodParams } = periodFilter
 
   useEffect(() => {
     if (!periodReady) return
@@ -183,7 +183,7 @@ export function TransfertsView() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, isCustom, customFrom, customTo, periodReady, store, refreshKey])
+  }, [periodSignature, periodReady, store, refreshKey])
 
   useEffect(() => {
     fetchJson<{ stores: StoreOption[] }>('/api/magasins').then((json) => setStoreOptions(json.stores)).catch(() => {})

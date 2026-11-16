@@ -7,7 +7,7 @@ import { AppShell } from '@/components/app-shell'
 import { LoadError } from '@/components/load-error'
 import { fetchJson } from '@/lib/fetch-json'
 import { exportLocationReportExcel, exportLocationReportPdf, type LocationReportsData } from '@/lib/export-location-report'
-import { PERIODS, PeriodFilter, usePeriodFilter } from '@/components/period-filter'
+import { PeriodFilter, usePeriodFilter } from '@/components/period-filter'
 
 function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: typeof Wallet; tone: 'navy' | 'green' | 'orange' | 'blue' }) {
   return (
@@ -32,13 +32,13 @@ function RankBar({ label, value, formatted, max, color, href }: { label: string;
 }
 
 export function LocationReportsView() {
-  const periodFilter = usePeriodFilter(PERIODS[2])
+  const periodFilter = usePeriodFilter()
   const [data, setData] = useState<LocationReportsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const { period, isCustom, customFrom, customTo, ready: periodReady, params: periodParams } = periodFilter
+  const { signature: periodSignature, ready: periodReady, params: periodParams } = periodFilter
 
   useEffect(() => {
     if (!periodReady) return
@@ -49,7 +49,7 @@ export function LocationReportsView() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Erreur inconnue.'))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, isCustom, customFrom, customTo, periodReady, refreshKey])
+  }, [periodSignature, periodReady, refreshKey])
 
   const maxExpense = useMemo(() => Math.max(1, ...(data?.expensesByCategory ?? []).map((row) => row.amount)), [data])
   const maxClient = useMemo(() => Math.max(1, ...(data?.topClients ?? []).map((row) => row.totalPaid)), [data])
@@ -61,8 +61,8 @@ export function LocationReportsView() {
         <div className="filter-row">
           <PeriodFilter state={periodFilter} />
           <div className="export-group">
-            <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportPdf(data, period)}><Download size={13} /> PDF</button>
-            <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportExcel(data, period)}><FileSpreadsheet size={13} /> Excel</button>
+            <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportPdf(data, periodFilter.period)}><Download size={13} /> PDF</button>
+            <button className="btn-secondary" disabled={!data} onClick={() => data && exportLocationReportExcel(data, periodFilter.period)}><FileSpreadsheet size={13} /> Excel</button>
           </div>
         </div>
       </section>
