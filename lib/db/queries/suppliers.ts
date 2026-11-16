@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db } from '../client'
 import {
+  cashAccounts,
   products,
   stores,
   supplierDeliveries,
@@ -133,8 +134,17 @@ export async function getSupplierDeliveryHistory(supplierId: number) {
 
 export async function getSupplierPaymentHistory(supplierId: number) {
   const rows = await db
-    .select()
+    .select({
+      id: supplierPayments.id,
+      amount: supplierPayments.amount,
+      method: supplierPayments.method,
+      date: supplierPayments.date,
+      createdAt: supplierPayments.createdAt,
+      cashAccountId: supplierPayments.cashAccountId,
+      cashAccountName: cashAccounts.name,
+    })
     .from(supplierPayments)
+    .leftJoin(cashAccounts, eq(supplierPayments.cashAccountId, cashAccounts.id))
     .where(and(eq(supplierPayments.supplierId, supplierId), isNull(supplierPayments.deletedAt)))
     .orderBy(desc(sql`${effectiveDate(supplierPayments.date, supplierPayments.createdAt)}`))
 
@@ -144,6 +154,8 @@ export async function getSupplierPaymentHistory(supplierId: number) {
     amountFormatted: formatFcfa(row.amount),
     method: row.method,
     date: row.date,
+    cashAccountId: row.cashAccountId,
+    cashAccountName: row.cashAccountName ?? 'Caisse par défaut',
     effectiveDate: row.date ?? row.createdAt,
     createdAt: row.createdAt,
   }))

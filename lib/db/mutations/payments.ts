@@ -226,24 +226,26 @@ export async function recordSupplierPayment(input: {
   amount: number
   method: (typeof paymentMethod)[number]
   date?: string | null
+  /** Which caisse the money came out of — defaults to the default caisse when omitted. */
+  cashAccountId?: number | null
 }) {
   const payment = await db.transaction(async (tx) => {
     const [payment] = await tx
       .insert(supplierPayments)
-      .values({ supplierId: input.supplierId, amount: input.amount, method: input.method, date: input.date ?? null })
+      .values({ supplierId: input.supplierId, amount: input.amount, method: input.method, date: input.date ?? null, cashAccountId: input.cashAccountId ?? null })
       .returning()
 
     await allocateToPayables(tx, payment.id, input.supplierId, input.amount)
     return payment
   })
 
-  // Suppliers aren't store-scoped, so this resolves to the default caisse regardless.
   await recordAutoCashMovement({
     direction: 'out',
     amount: input.amount,
     category: 'Paiement fournisseur',
     description: `Paiement fournisseur #${payment.id}`,
     date: input.date ?? null,
+    cashAccountId: input.cashAccountId,
   })
 
   return payment
@@ -251,7 +253,7 @@ export async function recordSupplierPayment(input: {
 
 export async function updateSupplierPayment(
   id: number,
-  input: { amount: number; method: (typeof paymentMethod)[number]; date?: string | null },
+  input: { amount: number; method: (typeof paymentMethod)[number]; date?: string | null; cashAccountId?: number | null },
   actor: Actor,
   reason?: string,
 ) {
@@ -269,7 +271,7 @@ export async function updateSupplierPayment(
 
     const [updated] = await tx
       .update(supplierPayments)
-      .set({ amount: input.amount, method: input.method, date: input.date ?? null })
+      .set({ amount: input.amount, method: input.method, date: input.date ?? null, cashAccountId: input.cashAccountId ?? null })
       .where(eq(supplierPayments.id, id))
       .returning()
 
@@ -290,14 +292,16 @@ export async function updateSupplierPayment(
 
   // Reversing an outflow brings that money back ("in"); applying the corrected amount sends it
   // back out ("out") — same two-entry pattern as updatePayment above, and skipped the same way
-  // when the amount didn't change.
-  if (existing.amount !== input.amount) {
+  // when neither the amount nor the caisse changed. Each leg targets the caisse it actually
+  // applies to (the old caisse gets credited back, the new/same caisse gets debited).
+  if (existing.amount !== input.amount || (existing.cashAccountId ?? null) !== (input.cashAccountId ?? null)) {
     await recordAutoCashMovement({
       direction: 'in',
       amount: existing.amount,
       category: 'Correction paiement fournisseur',
       description: `Correction paiement fournisseur #${existing.id} (ancien montant)`,
       date: existing.date,
+      cashAccountId: existing.cashAccountId,
     })
     await recordAutoCashMovement({
       direction: 'out',
@@ -305,6 +309,7 @@ export async function updateSupplierPayment(
       category: 'Correction paiement fournisseur',
       description: `Correction paiement fournisseur #${existing.id} (nouveau montant)`,
       date: input.date ?? null,
+      cashAccountId: input.cashAccountId,
     })
   }
 
@@ -344,6 +349,7 @@ export async function deleteSupplierPayment(id: number, actor: Actor, reason?: s
     category: 'Annulation paiement fournisseur',
     description: `Annulation paiement fournisseur #${deleted.id}`,
     date: deleted.date,
+    cashAccountId: deleted.cashAccountId,
   })
 
   return deleted

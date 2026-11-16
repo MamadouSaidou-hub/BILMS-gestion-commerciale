@@ -17,18 +17,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pa
   const amount = Number(body.amount)
   const method = body.method as 'cash' | 'mobile_money' | 'bank_transfer' | 'check'
   const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : undefined
+  const cashAccountId = body.cashAccountId !== undefined && body.cashAccountId !== null && body.cashAccountId !== '' ? Number(body.cashAccountId) : undefined
 
   const date = body.date ? String(body.date) : null
 
   if (!Number.isFinite(amount) || amount <= 0 || !['cash', 'mobile_money', 'bank_transfer', 'check'].includes(method)) {
     return NextResponse.json({ error: 'Champs invalides ou manquants.' }, { status: 400 })
   }
+  if (cashAccountId !== undefined && !Number.isFinite(cashAccountId)) {
+    return NextResponse.json({ error: 'Caisse invalide.' }, { status: 400 })
+  }
   if (date !== null && !isValidDateString(date)) {
     return NextResponse.json({ error: 'Date invalide.' }, { status: 400 })
   }
 
   try {
-    const payment = await updateSupplierPayment(id, { amount, method, date }, { userId: ctx.userId, userName: ctx.userName }, reason)
+    const payment = await updateSupplierPayment(id, { amount, method, date, cashAccountId }, { userId: ctx.userId, userName: ctx.userName }, reason)
     return NextResponse.json({ payment })
   } catch (error) {
     return NextResponse.json({ error: toApiErrorMessage(error) }, { status: 400 })

@@ -27,6 +27,7 @@ type SuppliersData = {
 
 type StoreOption = { id: number; name: string }
 type ProductOption = { id: number; name: string; sku: string }
+type CashAccountOption = { id: number; name: string; isDefault: boolean }
 
 const statusLabel = { ok: 'À jour', pending: 'En cours', overdue: 'En retard' }
 const statusBadge = { ok: 'badge-green', pending: 'badge-blue', overdue: 'badge-red' }
@@ -266,12 +267,19 @@ function RecordDeliveryForm({
   )
 }
 
-function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier; onCreated: () => void }) {
+function RecordSupplierPaymentForm({ supplier, cashAccountOptions, onCreated }: { supplier: Supplier; cashAccountOptions: CashAccountOption[]; onCreated: () => void }) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'bank_transfer' | 'check'>('bank_transfer')
+  const [cashAccountId, setCashAccountId] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!cashAccountId && cashAccountOptions.length > 0) {
+      setCashAccountId(String(cashAccountOptions.find((option) => option.isDefault)?.id ?? cashAccountOptions[0].id))
+    }
+  }, [cashAccountOptions, cashAccountId])
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -281,7 +289,7 @@ function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier
       const res = await fetch(`/api/fournisseurs/${supplier.id}/paiements`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, method, date: date || undefined }),
+        body: JSON.stringify({ amount, method, date: date || undefined, cashAccountId: cashAccountId || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -312,7 +320,15 @@ function RecordSupplierPaymentForm({ supplier, onCreated }: { supplier: Supplier
           </select>
         </div>
       </div>
-      <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Caisse débitée</label>
+          <select required value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}>
+            {cashAccountOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.isDefault ? ' (par défaut)' : ''}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le paiement'}</button></div>
     </form>
   )
@@ -340,6 +356,8 @@ type SupplierPaymentRow = {
   amount: number
   amountFormatted: string
   method: 'cash' | 'mobile_money' | 'bank_transfer' | 'check'
+  cashAccountId: number | null
+  cashAccountName: string
   date: string | null
   effectiveDate: string
   createdAt: string
@@ -474,13 +492,30 @@ function DeleteDeliveryConfirm({ supplierId, delivery, onClose, onDone }: { supp
   )
 }
 
-function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId: number; payment: SupplierPaymentRow; onSaved: () => void }) {
+function EditSupplierPaymentForm({
+  supplierId,
+  payment,
+  cashAccountOptions,
+  onSaved,
+}: {
+  supplierId: number
+  payment: SupplierPaymentRow
+  cashAccountOptions: CashAccountOption[]
+  onSaved: () => void
+}) {
   const [amount, setAmount] = useState(String(payment.amount))
   const [method, setMethod] = useState(payment.method)
+  const [cashAccountId, setCashAccountId] = useState(payment.cashAccountId ? String(payment.cashAccountId) : '')
   const [date, setDate] = useState((payment.date ?? '').slice(0, 10))
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!cashAccountId && cashAccountOptions.length > 0) {
+      setCashAccountId(String(cashAccountOptions.find((option) => option.isDefault)?.id ?? cashAccountOptions[0].id))
+    }
+  }, [cashAccountOptions, cashAccountId])
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -490,7 +525,7 @@ function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId:
       const res = await fetch(`/api/fournisseurs/${supplierId}/paiements/${payment.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, method, date: date || null, reason: reason || undefined }),
+        body: JSON.stringify({ amount, method, date: date || null, cashAccountId: cashAccountId || undefined, reason: reason || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -520,7 +555,15 @@ function EditSupplierPaymentForm({ supplierId, payment, onSaved }: { supplierId:
           </select>
         </div>
       </div>
-      <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Caisse débitée</label>
+          <select required value={cashAccountId} onChange={(event) => setCashAccountId(event.target.value)}>
+            {cashAccountOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.isDefault ? ' (par défaut)' : ''}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Date du paiement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
+      </div>
       <div className="form-field"><label>Motif de la correction (optionnel)</label><input value={reason} onChange={(event) => setReason(event.target.value)} /></div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer les modifications'}</button></div>
     </form>
@@ -574,10 +617,12 @@ function SupplierHistory({
   supplier,
   storeOptions,
   productOptions,
+  cashAccountOptions,
 }: {
   supplier: Supplier
   storeOptions: StoreOption[]
   productOptions: ProductOption[]
+  cashAccountOptions: CashAccountOption[]
 }) {
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([])
   const [payments, setPayments] = useState<SupplierPaymentRow[]>([])
@@ -636,12 +681,13 @@ function SupplierHistory({
       <p className="section-title" style={{ marginTop: 20 }}>Paiements</p>
       <div className="table-scroll">
         <table className="data-table">
-          <thead><tr><th>Date</th><th>Méthode</th><th>Montant</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Méthode</th><th>Caisse</th><th>Montant</th><th></th></tr></thead>
           <tbody>
             {payments.map((payment) => (
               <tr key={payment.id}>
                 <td data-label="Date">{new Date(payment.effectiveDate).toLocaleDateString('fr-FR')}</td>
                 <td data-label="Méthode">{payment.method}</td>
+                <td data-label="Caisse" className="cell-secondary">{payment.cashAccountName}</td>
                 <td data-label="Montant">{payment.amountFormatted}</td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn-ghost" onClick={() => setEditingPayment(payment)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier</button>
@@ -663,7 +709,14 @@ function SupplierHistory({
         {deletingDelivery && <DeleteDeliveryConfirm supplierId={supplier.id} delivery={deletingDelivery} onClose={() => setDeletingDelivery(null)} onDone={() => { setDeletingDelivery(null); refresh() }} />}
       </Modal>
       <Modal open={editingPayment !== null} onClose={() => setEditingPayment(null)} title="Modifier le paiement" subtitle="">
-        {editingPayment && <EditSupplierPaymentForm supplierId={supplier.id} payment={editingPayment} onSaved={() => { setEditingPayment(null); refresh() }} />}
+        {editingPayment && (
+          <EditSupplierPaymentForm
+            supplierId={supplier.id}
+            payment={editingPayment}
+            cashAccountOptions={cashAccountOptions}
+            onSaved={() => { setEditingPayment(null); refresh() }}
+          />
+        )}
       </Modal>
       <Modal open={deletingPayment !== null} onClose={() => setDeletingPayment(null)} title="Supprimer ce paiement ?" subtitle="">
         {deletingPayment && <DeleteSupplierPaymentConfirm supplierId={supplier.id} payment={deletingPayment} onClose={() => setDeletingPayment(null)} onDone={() => { setDeletingPayment(null); refresh() }} />}
@@ -679,6 +732,7 @@ export function FournisseursView() {
   const [error, setError] = useState('')
   const [storeOptions, setStoreOptions] = useState<StoreOption[]>([])
   const [productOptions, setProductOptions] = useState<ProductOption[]>([])
+  const [cashAccountOptions, setCashAccountOptions] = useState<CashAccountOption[]>([])
   const [supplierModalOpen, setSupplierModalOpen] = useState(false)
   const [deliverySupplier, setDeliverySupplier] = useState<Supplier | null>(null)
   const [paymentSupplier, setPaymentSupplier] = useState<Supplier | null>(null)
@@ -695,6 +749,7 @@ export function FournisseursView() {
       .finally(() => setLoading(false))
     fetchJson<{ stores: StoreOption[] }>('/api/magasins').then((json) => setStoreOptions(json.stores)).catch(() => {})
     fetchJson<{ products: ProductOption[] }>('/api/products').then((json) => setProductOptions(json.products)).catch(() => {})
+    fetchJson<{ accounts: CashAccountOption[] }>('/api/caisses/options').then((json) => setCashAccountOptions(json.accounts)).catch(() => {})
   }, [refreshKey])
 
   const filteredSuppliers = useMemo(() => {
@@ -782,6 +837,7 @@ export function FournisseursView() {
         {paymentSupplier && (
           <RecordSupplierPaymentForm
             supplier={paymentSupplier}
+            cashAccountOptions={cashAccountOptions}
             onCreated={() => { setPaymentSupplier(null); setRefreshKey((key) => key + 1) }}
           />
         )}
@@ -796,7 +852,9 @@ export function FournisseursView() {
         />
       )}
       <Modal open={historySupplier !== null} onClose={() => setHistorySupplier(null)} title={`Historique — ${historySupplier?.name ?? ''}`} wide>
-        {historySupplier && <SupplierHistory supplier={historySupplier} storeOptions={storeOptions} productOptions={productOptions} />}
+        {historySupplier && (
+          <SupplierHistory supplier={historySupplier} storeOptions={storeOptions} productOptions={productOptions} cashAccountOptions={cashAccountOptions} />
+        )}
       </Modal>
     </AppShell>
   )

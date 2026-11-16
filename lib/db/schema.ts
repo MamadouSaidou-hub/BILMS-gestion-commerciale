@@ -424,6 +424,9 @@ export const supplierPayments = pgTable(
       .references(() => suppliers.id, { onDelete: 'cascade' }),
     amount: doublePrecision('amount').notNull(),
     method: text('method', { enum: paymentMethod }).notNull().default('cash'),
+    // Which caisse the money actually came out of — recorded so editing/cancelling this payment
+    // later reverses the movement on that same account instead of always hitting the default one.
+    cashAccountId: integer('cash_account_id').references(() => cashAccounts.id, { onDelete: 'set null' }),
     // Backdatable "YYYY-MM-DD" — see the `date` comment on stockReceptions.
     date: text('date'),
     deletedAt: text('deleted_at'),

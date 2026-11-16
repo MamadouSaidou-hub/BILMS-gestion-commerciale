@@ -84,5 +84,5 @@ export async function getCashAccountsOverview(period: PeriodKey, custom?: Custom
 }
 
 export async function getCashAccountOptions() {
-  return db.select({ id: cashAccounts.id, name: cashAccounts.name }).from(cashAccounts).orderBy(cashAccounts.name)
+  return db.select({ id: cashAccounts.id, name: cashAccounts.name, isDefault: cashAccounts.isDefault }).from(cashAccounts).orderBy(cashAccounts.name)
 }

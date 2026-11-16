@@ -24,11 +24,14 @@ export async function recordAutoCashMovement(input: {
   /** The date of the operation that produced this movement (a backdated sale's own date, say) —
    * so the caisse reports it on the day the money actually moved, not the day it was typed in. */
   date?: string | null
+  /** Overrides the default-caisse routing below — used where the operation lets someone pick which
+   * caisse the money actually moved through (e.g. a supplier payment from "Caisse dépenses"). */
+  cashAccountId?: number | null
 }) {
   if (input.amount <= 0) return null
 
   const accounts = await db.select().from(cashAccounts).orderBy(cashAccounts.id)
-  const account = accounts.find((row) => row.isDefault) ?? accounts[0]
+  const account = (input.cashAccountId ? accounts.find((row) => row.id === input.cashAccountId) : undefined) ?? accounts.find((row) => row.isDefault) ?? accounts[0]
   if (!account) return null
 
   return recordCashMovement({
