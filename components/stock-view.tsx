@@ -11,6 +11,7 @@ import { LoadError } from '@/components/load-error'
 import { authClient } from '@/lib/auth-client'
 
 type StockItem = {
+  productId: number
   name: string
   sku: string
   category: string
@@ -142,6 +143,67 @@ function NewProductForm({ storeOptions, onCreated }: { storeOptions: StoreOption
         </select>
       </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Création...' : 'Créer l’article'}</button></div>
+    </form>
+  )
+}
+
+function EditProductPriceForm({ productId, productName, onSaved }: { productId: number; productName: string; onSaved: () => void }) {
+  const [unitPrice, setUnitPrice] = useState('')
+  const [costPrice, setCostPrice] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchJson<{ product: { unitPrice: number; costPrice: number } }>(`/api/products/${productId}`)
+      .then((json) => {
+        if (cancelled) return
+        setUnitPrice(String(json.product.unitPrice))
+        setCostPrice(String(json.product.costPrice))
+      })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Erreur inconnue.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [productId])
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/products/${productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitPrice, costPrice }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Une erreur est survenue.')
+        return
+      }
+      onSaved()
+    } catch {
+      setError('Connexion instable — impossible de contacter le serveur. Réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) return <p className="section-subtitle">Chargement...</p>
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-error">{error}</p>}
+      <p className="section-subtitle">
+        {productName} — le nouveau prix ne s’applique qu’aux prochaines ventes/réceptions. Les ventes et livraisons déjà
+        enregistrées gardent le prix qui était en vigueur à l’époque.
+      </p>
+      <div className="form-row">
+        <div className="form-field"><label>Prix de vente (GNF)</label><input required type="number" min="0" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></div>
+        <div className="form-field"><label>Prix d’achat (GNF)</label><input required type="number" min="0" value={costPrice} onChange={(event) => setCostPrice(event.target.value)} /></div>
+      </div>
+      <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le nouveau prix'}</button></div>
     </form>
   )
 }
@@ -625,6 +687,7 @@ export function StockView() {
   const [receptions, setReceptions] = useState<StockReceptionRow[]>([])
   const [editingReception, setEditingReception] = useState<StockReceptionRow | null>(null)
   const [deletingReception, setDeletingReception] = useState<StockReceptionRow | null>(null)
+  const [editingPriceOf, setEditingPriceOf] = useState<StockItem | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -737,6 +800,7 @@ export function StockView() {
                 <th>Seuil</th>
                 <th>Prix unitaire</th>
                 <th>Statut</th>
+                {isAdmin && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -751,6 +815,9 @@ export function StockView() {
                   <td data-label="Seuil" className="cell-secondary">{item.threshold}</td>
                   <td data-label="Prix unitaire" className="cell-secondary">{item.unitPrice}</td>
                   <td data-label="Statut"><span className={`badge ${statusBadge[item.status]}`}>{statusLabel[item.status]}</span></td>
+                  {isAdmin && (
+                    <td><button className="btn-ghost" onClick={() => setEditingPriceOf(item)}><Pencil size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Modifier le prix</button></td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -857,6 +924,16 @@ export function StockView() {
       <Modal open={deletingCount !== null} onClose={() => setDeletingCount(null)} title="Supprimer ce comptage ?" subtitle="">
         {deletingCount && (
           <DeleteStockCountConfirm row={deletingCount} onClose={() => setDeletingCount(null)} onDone={() => { setDeletingCount(null); refresh() }} />
+        )}
+      </Modal>
+
+      <Modal open={editingPriceOf !== null} onClose={() => setEditingPriceOf(null)} title="Modifier le prix" subtitle="">
+        {editingPriceOf && (
+          <EditProductPriceForm
+            productId={editingPriceOf.productId}
+            productName={editingPriceOf.name}
+            onSaved={() => { setEditingPriceOf(null); refresh() }}
+          />
         )}
       </Modal>
 

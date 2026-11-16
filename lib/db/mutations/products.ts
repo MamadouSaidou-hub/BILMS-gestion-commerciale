@@ -1,4 +1,4 @@
-import { and, eq, like } from 'drizzle-orm'
+import { eq, like } from 'drizzle-orm'
 import { db } from '../client'
 import { products, stockLevels, stockMovements, stores } from '../schema'
 import { getQuantity } from './shared'
@@ -86,6 +86,21 @@ export async function createProduct(input: {
     })
   }
 
+  return product
+}
+
+/** Changes only the product's current price(s) going forward — every past sale/delivery already
+ * recorded its own price at the time (saleItems.unitPrice, supplierDeliveryItems.unitPrice), so
+ * historical totals never shift when today's price changes. */
+export async function updateProduct(id: number, input: { unitPrice?: number; costPrice?: number }) {
+  const [product] = await db
+    .update(products)
+    .set({
+      ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
+      ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
+    })
+    .where(eq(products.id, id))
+    .returning()
   return product
 }
 

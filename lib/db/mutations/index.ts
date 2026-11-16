@@ -1,6 +1,6 @@
 export { createStore } from './stores'
 export { createClient, updateClient } from './clients'
-export { createProduct, bulkImportProducts, type BulkImportRow } from './products'
+export { createProduct, updateProduct, bulkImportProducts, type BulkImportRow } from './products'
 export { createSale, updateSale, cancelSale } from './sales'
 export { type Actor } from './audit'
 export { recordPayment, updatePayment, deletePayment, recordSupplierPayment, updateSupplierPayment, deleteSupplierPayment } from './payments'
