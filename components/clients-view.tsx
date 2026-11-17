@@ -145,6 +145,7 @@ function RecordPaymentForm({ client, storeOptions, onCreated }: { client: Client
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<'cash' | 'mobile_money' | 'bank_transfer' | 'check'>('cash')
   const [storeId, setStoreId] = useState(String(client.storeId ?? storeOptions[0]?.id ?? ''))
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -156,7 +157,7 @@ function RecordPaymentForm({ client, storeOptions, onCreated }: { client: Client
       const res = await fetch('/api/tresorerie', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: client.id, amount, method, storeId }),
+        body: JSON.stringify({ clientId: client.id, amount, method, storeId, date: date || undefined }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -187,11 +188,14 @@ function RecordPaymentForm({ client, storeOptions, onCreated }: { client: Client
           </select>
         </div>
       </div>
-      <div className="form-field">
-        <label>Magasin d’encaissement</label>
-        <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
-          {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-        </select>
+      <div className="form-row">
+        <div className="form-field">
+          <label>Magasin d’encaissement</label>
+          <select required value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+            {storeOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+          </select>
+        </div>
+        <div className="form-field"><label>Date d’encaissement</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
       </div>
       <div className="form-actions"><button type="submit" className="btn-primary" disabled={submitting}>{submitting ? 'Enregistrement...' : 'Enregistrer le paiement'}</button></div>
     </form>
