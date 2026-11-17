@@ -172,6 +172,31 @@ describe('updateSupplierDelivery', () => {
     expect(log.reason).toBe('Erreur de comptage')
   })
 
+  it("preserves an existing debt across an edit even if the request's paymentStatus says 'paid' (the edit form only corrects lines/store/date, never settles the debt)", async () => {
+    const delivery = await recordSupplierDelivery({
+      supplierId,
+      storeId,
+      items: [{ productId, sackCount: 6 }],
+      paymentStatus: 'credit',
+      paidNow: 0,
+      dueInDays: 30,
+    })
+    deliveryIds.push(delivery.id)
+    const [originalPayable] = await db.select().from(supplierPayables).where(eq(supplierPayables.deliveryId, delivery.id))
+    expect(originalPayable.amount).toBe(6000)
+
+    await updateSupplierDelivery(
+      delivery.id,
+      { supplierId, storeId, items: [{ productId, sackCount: 9 }], paymentStatus: 'paid', paidNow: 0, dueInDays: 30 },
+      actor,
+    )
+
+    const [payable] = await db.select().from(supplierPayables).where(eq(supplierPayables.deliveryId, delivery.id))
+    expect(payable).toBeDefined()
+    expect(payable.amount).toBe(9000)
+    expect(payable.dueDate).toBe(originalPayable.dueDate)
+  })
+
   it('can change which products are on the delivery entirely', async () => {
     const beforeA = await stockOf(productId)
     const beforeB = await stockOf(productBId)

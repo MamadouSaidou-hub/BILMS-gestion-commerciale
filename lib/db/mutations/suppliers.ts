@@ -245,7 +245,16 @@ export async function updateSupplierDelivery(id: number, input: DeliveryInput, a
       .where(eq(supplierDeliveries.id, id))
       .returning()
 
-    await applyDeliveryEffects(tx, updatedDelivery, items, charges, input)
+    // The edit form only corrects lines/store/date — it isn't meant to settle or reopen a debt,
+    // so whether this delivery still owes money is decided by whether it owed money before the
+    // edit, not by whatever paymentStatus the request happens to carry (which today is always a
+    // hardcoded 'paid').
+    const effectiveInput = existingPayable ? { ...input, paymentStatus: 'credit' as const, paidNow: 0 } : input
+    await applyDeliveryEffects(tx, updatedDelivery, items, charges, effectiveInput)
+
+    if (existingPayable) {
+      await tx.update(supplierPayables).set({ dueDate: existingPayable.dueDate }).where(eq(supplierPayables.deliveryId, id))
+    }
 
     const newItems = await tx.select().from(supplierDeliveryItems).where(eq(supplierDeliveryItems.deliveryId, id))
     const newCharges = await tx.select().from(supplierDeliveryCharges).where(eq(supplierDeliveryCharges.deliveryId, id))
